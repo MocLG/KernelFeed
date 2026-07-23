@@ -119,7 +119,7 @@ class ThreadRepositoryImpl @Inject constructor(
             val existing = threadDao.getThread(rootMessageId)
             val onDisk = messageDao.countForThread(rootMessageId)
             val fresh = existing != null && existing.isCached &&
-                System.currentTimeMillis() - existing.cachedAtEpochMillis < CACHE_TTL_MILLIS
+                System.currentTimeMillis() - existing.cachedAtEpochMillis < READ_CACHE_TTL_MILLIS
 
             if (!force && fresh && onDisk > 0) return@ioResult onDisk
 
@@ -233,7 +233,9 @@ class ThreadRepositoryImpl @Inject constructor(
     // ---- Background sync -------------------------------------------------------------
 
     override suspend fun syncSavedThreads(): Resource<SyncOutcome> = ioResult {
-        val stale = threadDao.savedNeedingRefresh(System.currentTimeMillis() - CACHE_TTL_MILLIS)
+        val stale = threadDao.savedNeedingRefresh(
+            System.currentTimeMillis() - SAVED_REFRESH_TTL_MILLIS,
+        )
         var refreshed = 0
         var failed = 0
         for (thread in stale) {
@@ -298,7 +300,28 @@ class ThreadRepositoryImpl @Inject constructor(
         const val DEFAULT_LIST = "lkml"
         private const val BATCH_SIZE = 40
         private const val GZIP_BUFFER = 16 * 1024
-        private val CACHE_TTL_MILLIS = 6.hours.inWholeMilliseconds
+
+        /**
+         * How long an opened thread is served from disk without re-downloading.
+         *
+         * This is *not* what makes reopening instant — the thread screen observes Room, so
+         * cached messages paint immediately whatever this value is. It only decides
+         * whether a background refetch is also worth a request. At 24 hours, reopening a
+         * thread you read today costs no network at all; the trade-off is that replies
+         * arriving inside that window are not picked up until the user pulls refresh.
+         */
+        private val READ_CACHE_TTL_MILLIS = 24.hours.inWholeMilliseconds
+
+        /**
+         * Staleness threshold for *saved* threads in background sync.
+         *
+         * Kept short and separate from [READ_CACHE_TTL_MILLIS]: threads the user pinned
+         * should track new replies closely, and folding the two together would have
+         * quietly slowed saved-thread sync to once a day.
+         */
+        private val SAVED_REFRESH_TTL_MILLIS = 6.hours.inWholeMilliseconds
+
+        /** Unsaved cached threads are discarded after this; saved ones never are. */
         private val EVICT_AFTER_MILLIS = 14.days.inWholeMilliseconds
     }
 }

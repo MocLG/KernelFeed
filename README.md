@@ -100,7 +100,19 @@ Saving a thread pins it against eviction rather than triggering a separate downl
 
 `isSaved` (user intent) and `isCached` (cache fact) are separate columns. Eviction only
 ever touches `isCached && !isSaved`, which is what makes the offline promise
-unconditional. Feed refreshes use insert-then-patch rather than `REPLACE`, so server-owned
+unconditional.
+
+Three separate lifetimes govern a thread, and conflating them would be a mistake:
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `READ_CACHE_TTL_MILLIS` | 24 h | how long an opened thread is served without a refetch |
+| `SAVED_REFRESH_TTL_MILLIS` | 6 h | when background sync considers a *saved* thread stale |
+| `EVICT_AFTER_MILLIS` | 14 days | when an unsaved cached thread is discarded |
+
+Note that none of these control how fast a thread reopens. Because the thread screen
+observes Room, cached messages paint immediately regardless; the read TTL only decides
+whether a network request is also worth making. Feed refreshes use insert-then-patch rather than `REPLACE`, so server-owned
 columns never clobber client-owned ones — a plain upsert would silently un-save the user's
 threads on every refresh.
 
