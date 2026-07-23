@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A terminal-style prompt caret over a thread rail: mail archive meets kernel source. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#7EE787"
+        android:pathData="M34,40 L34,48 L46,54 L34,60 L34,68 L56,56 L56,52 Z" />
+    <path
+        android:fillColor="#F0F6FC"
+        android:pathData="M60,62 L60,68 L76,68 L76,62 Z" />
+    <path
+        android:fillColor="#79C0FF"
+        android:pathData="M34,32 L76,32 L76,36 L34,36 Z" />
+</vector>

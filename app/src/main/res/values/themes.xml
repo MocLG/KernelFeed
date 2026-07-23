@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all app styling; this exists only to give the window a
+         Material 3 base and avoid an action bar before Compose takes over. -->
+    <style name="Theme.Lkml" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>

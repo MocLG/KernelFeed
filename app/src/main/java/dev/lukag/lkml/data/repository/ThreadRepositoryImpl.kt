@@ -1,0 +1,304 @@
+package dev.lukag.lkml.data.repository
+
+import androidx.room.withTransaction
+import dev.lukag.lkml.core.AppError
+import dev.lukag.lkml.core.NetworkMonitor
+import dev.lukag.lkml.core.Resource
+import dev.lukag.lkml.data.local.LkmlDatabase
+import dev.lukag.lkml.data.local.toDomain
+import dev.lukag.lkml.data.local.toEntity
+import dev.lukag.lkml.data.local.entity.FeedPageEntity
+import dev.lukag.lkml.data.local.entity.ThreadEntity
+import dev.lukag.lkml.data.mbox.MboxParser
+import dev.lukag.lkml.data.remote.BotChallengeException
+import dev.lukag.lkml.data.remote.LoreApi
+import dev.lukag.lkml.data.remote.LoreUrls
+import dev.lukag.lkml.data.remote.parser.LoreHtmlParsers
+import dev.lukag.lkml.di.IoDispatcher
+import dev.lukag.lkml.domain.model.Message
+import dev.lukag.lkml.domain.model.ThreadSummary
+import dev.lukag.lkml.domain.repository.SearchOutcome
+import dev.lukag.lkml.domain.repository.SyncOutcome
+import dev.lukag.lkml.domain.repository.ThreadRepository
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withContext
+import okhttp3.ResponseBody
+import retrofit2.Response
+import java.io.IOException
+import java.util.zip.GZIPInputStream
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlin.time.Duration.Companion.days
+import kotlin.time.Duration.Companion.hours
+
+@Singleton
+class ThreadRepositoryImpl @Inject constructor(
+    private val api: LoreApi,
+    private val db: LkmlDatabase,
+    private val networkMonitor: NetworkMonitor,
+    @IoDispatcher private val io: CoroutineDispatcher,
+) : ThreadRepository {
+
+    private val threadDao = db.threadDao()
+    private val messageDao = db.messageDao()
+    private val list = DEFAULT_LIST
+
+    // ---- Reads: always from Room, never gated on the network. -------------------------
+
+    override fun observeFeed(): Flow<List<ThreadSummary>> =
+        threadDao.observeFeed().map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeSaved(): Flow<List<ThreadSummary>> =
+        threadDao.observeSaved().map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeThread(rootMessageId: String): Flow<ThreadSummary?> =
+        threadDao.observeThread(rootMessageId).map { it?.toDomain() }
+
+    override fun observeMessages(rootMessageId: String): Flow<List<Message>> =
+        messageDao.observeThreadMessages(rootMessageId).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeCachedBytes(): Flow<Long> =
+        messageDao.observeCachedBytes().map { it ?: 0L }
+
+    // ---- Feed ------------------------------------------------------------------------
+
+    override suspend fun refreshFeed(): Resource<Unit> = ioResult {
+        // Fetch before opening the transaction: holding a write lock across a network
+        // round trip would block every reader for the duration of the request.
+        val page = fetchTopicPage(cursor = null)
+        db.withTransaction {
+            threadDao.clearFeedFlag()
+            threadDao.clearPages()
+            threadDao.upsertFeed(page.topics.map { it.toEntity(inFeed = true) })
+            threadDao.upsertPage(
+                FeedPageEntity(0, null, page.nextCursor, System.currentTimeMillis()),
+            )
+            threadDao.pruneOrphanStubs()
+        }
+    }
+
+    override suspend fun loadMoreFeed(): Resource<Boolean> = ioResult {
+        val last = threadDao.lastPage()
+        val cursor = last?.nextCursor
+        if (last != null && cursor == null) return@ioResult false // Archive exhausted.
+
+        val page = fetchTopicPage(cursor)
+        threadDao.upsertFeed(page.topics.map { it.toEntity(inFeed = true) })
+        threadDao.upsertPage(
+            FeedPageEntity(
+                pageIndex = (last?.pageIndex ?: -1) + 1,
+                cursor = cursor,
+                nextCursor = page.nextCursor,
+                fetchedAtEpochMillis = System.currentTimeMillis(),
+            ),
+        )
+        page.nextCursor != null && page.topics.isNotEmpty()
+    }
+
+    private suspend fun fetchTopicPage(cursor: String?) =
+        LoreHtmlParsers.parseTopicIndex(readHtml(LoreUrls.topicIndex(list, cursor)))
+
+    // ---- Thread bodies ---------------------------------------------------------------
+
+    /**
+     * Fetches the whole thread as one gzipped mbox and streams it into Room.
+     *
+     * One request per thread — not per message — is the central performance decision here.
+     * lore serves a complete 14-message thread in about 9 KB compressed; fetching messages
+     * individually would mean 14 round trips for the same bytes, and on mobile latency the
+     * round trips dominate. It also makes offline saving trivial: the thing already
+     * downloaded *is* the offline artefact.
+     *
+     * Messages are inserted in batches while parsing continues, so a large series starts
+     * appearing on screen before the download has finished.
+     */
+    override suspend fun ensureThreadCached(rootMessageId: String, force: Boolean): Resource<Int> =
+        ioResult {
+            val existing = threadDao.getThread(rootMessageId)
+            val onDisk = messageDao.countForThread(rootMessageId)
+            val fresh = existing != null && existing.isCached &&
+                System.currentTimeMillis() - existing.cachedAtEpochMillis < CACHE_TTL_MILLIS
+
+            if (!force && fresh && onDisk > 0) return@ioResult onDisk
+
+            // The messages table has a FK onto threads, so the parent row must exist first.
+            if (existing == null) {
+                threadDao.insertIgnoring(
+                    listOf(
+                        ThreadEntity(
+                            rootMessageId = rootMessageId,
+                            subject = "",
+                            lastActivityEpochMillis = 0L,
+                            messageCount = 0,
+                            latestAuthor = null,
+                            inFeed = false,
+                        ),
+                    ),
+                )
+            }
+
+            val response = api.getStream(LoreUrls.threadMbox(list, rootMessageId))
+            val body = response.requireBody("thread mbox")
+
+            var count = 0
+            var newestDate = Long.MIN_VALUE
+            var newestAuthor: String? = null
+            val batch = ArrayList<Message>(BATCH_SIZE)
+
+            fun flush() {
+                if (batch.isEmpty()) return
+                messageDao.insertAllBlocking(batch.map { it.toEntity() })
+                batch.clear()
+            }
+
+            // The response is a .gz *file*, so OkHttp's transparent decompression does not
+            // apply (that only covers Content-Encoding). Decompress explicitly, streaming.
+            body.byteStream().use { raw ->
+                GZIPInputStream(raw, GZIP_BUFFER).use { gz ->
+                    MboxParser.parse(gz, rootMessageId) { msg ->
+                        count++
+                        if (msg.dateEpochMillis > newestDate) {
+                            newestDate = msg.dateEpochMillis
+                            newestAuthor = msg.authorDisplay
+                        }
+                        batch += msg
+                        // Writing as we go keeps peak memory at one batch rather than one
+                        // thread, and lets the UI start rendering mid-download.
+                        if (batch.size >= BATCH_SIZE) flush()
+                    }
+                    flush()
+                }
+            }
+
+            if (count == 0) throw ParseFailure("thread mbox contained no messages")
+
+            threadDao.markCached(
+                id = rootMessageId,
+                now = System.currentTimeMillis(),
+                count = count,
+                latestAuthor = newestAuthor,
+            )
+            // A stub created above has an empty subject; adopt the real one from the mbox.
+            if (existing?.subject.isNullOrBlank()) {
+                val root = messageDao.getThreadMessages(rootMessageId)
+                    .minByOrNull { it.dateEpochMillis }
+                if (root != null) {
+                    threadDao.updateThreadMeta(
+                        id = rootMessageId,
+                        subject = root.subject,
+                        lastActivity = if (newestDate > Long.MIN_VALUE) newestDate else root.dateEpochMillis,
+                        messageCount = count,
+                        latestAuthor = newestAuthor,
+                    )
+                }
+            }
+            count
+        }
+
+    override suspend fun setSaved(rootMessageId: String, saved: Boolean): Resource<Unit> =
+        ioResult { threadDao.setSaved(rootMessageId, saved) }
+
+    // ---- Search ----------------------------------------------------------------------
+
+    override suspend fun searchRemote(query: String, offset: Int): Resource<SearchOutcome> =
+        ioResult {
+            val html = readHtml(LoreUrls.search(list, query, offset))
+            val page = LoreHtmlParsers.parseSearchResults(html, offset)
+            // Search hits are recorded as stubs (inFeed = false) so tapping one has a row
+            // to attach messages to, without them leaking into the feed list.
+            threadDao.insertIgnoring(page.results.map { it.toEntity(inFeed = false) })
+            SearchOutcome(page.results, page.nextOffset)
+        }
+
+    override suspend fun searchLocal(query: String): Resource<List<Message>> = ioResult {
+        val sanitised = toFtsQuery(query)
+        if (sanitised.isBlank()) emptyList()
+        else messageDao.searchOffline(sanitised).map { it.toDomain() }
+    }
+
+    /**
+     * FTS4 `MATCH` treats `-`, `"`, `*`, `:` and friends as operators, and kernel searches
+     * are full of them (`io_uring`, `mm/slab.c`, `-next`). Each term is quoted so it is
+     * taken literally, with a trailing `*` for prefix matching on the final term.
+     */
+    private fun toFtsQuery(raw: String): String =
+        raw.split(Regex("""\s+"""))
+            .map { it.replace("\"", "").trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ") { "\"$it\"" }
+            .let { if (it.isEmpty()) it else "$it*" }
+
+    // ---- Background sync -------------------------------------------------------------
+
+    override suspend fun syncSavedThreads(): Resource<SyncOutcome> = ioResult {
+        val stale = threadDao.savedNeedingRefresh(System.currentTimeMillis() - CACHE_TTL_MILLIS)
+        var refreshed = 0
+        var failed = 0
+        for (thread in stale) {
+            when (ensureThreadCached(thread.rootMessageId, force = true)) {
+                is Resource.Success -> refreshed++
+                else -> failed++
+            }
+        }
+        val evicted = threadDao.evictStaleCached(System.currentTimeMillis() - EVICT_AFTER_MILLIS)
+        SyncOutcome(refreshed, failed, evicted)
+    }
+
+    // ---- Plumbing --------------------------------------------------------------------
+
+    private suspend fun readHtml(url: String): String {
+        val response = api.getHtml(url)
+        val text = response.requireBody("page").string()
+        if (LoreHtmlParsers.isBotChallenge(text)) throw BotChallengeException(url)
+        return text
+    }
+
+    private fun Response<ResponseBody>.requireBody(what: String): ResponseBody {
+        if (!isSuccessful) throw HttpFailure(code(), message())
+        return body() ?: throw ParseFailure("empty $what response")
+    }
+
+    /**
+     * Runs [block] on the IO dispatcher and maps failures onto [AppError].
+     *
+     * Connectivity is checked *after* the failure rather than before the call: a
+     * pre-flight check races with the actual request and would misreport a request that
+     * failed for a different reason while the radio happened to be down.
+     */
+    private suspend fun <T> ioResult(block: suspend () -> T): Resource<T> = withContext(io) {
+        try {
+            Resource.Success(block())
+        } catch (e: BotChallengeException) {
+            Resource.Error(AppError.BotChallenge)
+        } catch (e: HttpFailure) {
+            Resource.Error(AppError.Http(e.code, e.reason))
+        } catch (e: ParseFailure) {
+            Resource.Error(AppError.Parse(e.message ?: "unexpected response"))
+        } catch (e: IOException) {
+            if (networkMonitor.currentlyOnline()) {
+                Resource.Error(AppError.Network(e.message))
+            } else {
+                Resource.Offline(null)
+            }
+        } catch (e: android.database.SQLException) {
+            Resource.Error(AppError.Storage(e.message))
+        } catch (e: Exception) {
+            Resource.Error(AppError.Unknown(e.message))
+        }
+    }
+
+    private class HttpFailure(val code: Int, val reason: String?) :
+        IOException("HTTP $code $reason")
+
+    private class ParseFailure(message: String) : IOException(message)
+
+    companion object {
+        const val DEFAULT_LIST = "lkml"
+        private const val BATCH_SIZE = 40
+        private const val GZIP_BUFFER = 16 * 1024
+        private val CACHE_TTL_MILLIS = 6.hours.inWholeMilliseconds
+        private val EVICT_AFTER_MILLIS = 14.days.inWholeMilliseconds
+    }
+}
