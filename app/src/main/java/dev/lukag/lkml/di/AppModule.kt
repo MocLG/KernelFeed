@@ -121,6 +121,9 @@ object DatabaseModule {
 
     @Provides
     fun messageDao(db: LkmlDatabase) = db.messageDao()
+
+    @Provides
+    fun mailingListDao(db: LkmlDatabase) = db.mailingListDao()
 }
 
 @Module

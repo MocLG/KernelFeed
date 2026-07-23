@@ -6,6 +6,7 @@ import androidx.room.ForeignKey
 import androidx.room.Fts4
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import dev.lukag.lkml.domain.model.MailingLists
 
 /**
  * A thread as listed in the feed.
@@ -36,8 +37,60 @@ data class ThreadEntity(
     val isCached: Boolean = false,
     /** When the mbox was last downloaded; drives staleness checks and eviction order. */
     val cachedAtEpochMillis: Long = 0L,
-    /** Present only for threads that came from the feed, so search hits don't pollute it. */
-    val inFeed: Boolean = false,
+    /**
+     * The list this thread was discovered in, and the first place its mbox is fetched
+     * from. The aggregate inbox lags behind per-list indexes and 404s for recent threads,
+     * so it cannot be used unconditionally — see `ThreadRepositoryImpl.threadMboxSources`.
+     */
+    val sourceList: String = MailingLists.ALL,
+)
+
+/**
+ * Membership of a thread in one list's feed.
+ *
+ * A join table rather than a column on [ThreadEntity], because the same thread genuinely
+ * appears in several lists' indexes — a networking patch is on `netdev`, `lkml` and
+ * `all` at once. A single `feedList` column would make those lists fight over the row,
+ * with whichever refreshed last winning and the others losing the thread from their feed.
+ *
+ * [lastActivityEpochMillis] is duplicated here on purpose: it is the *per-list* ordering
+ * key, which can differ from the thread's global last activity when a list only carried
+ * part of a cross-posted discussion.
+ */
+@Entity(
+    tableName = "feed_entries",
+    primaryKeys = ["listSlug", "rootMessageId"],
+    indices = [
+        Index("listSlug", "lastActivityEpochMillis"),
+        Index("rootMessageId"),
+    ],
+    foreignKeys = [
+        ForeignKey(
+            entity = ThreadEntity::class,
+            parentColumns = ["rootMessageId"],
+            childColumns = ["rootMessageId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class FeedEntryEntity(
+    val listSlug: String,
+    val rootMessageId: String,
+    val lastActivityEpochMillis: Long,
+)
+
+/** A mailing list from `manifest.js.gz`, plus the user's pin state. */
+@Entity(
+    tableName = "mailing_lists",
+    indices = [Index("lastActivityEpochMillis"), Index("isFeatured")],
+)
+data class MailingListEntity(
+    @PrimaryKey val slug: String,
+    val title: String,
+    val description: String?,
+    val lastActivityEpochMillis: Long,
+    val isFeatured: Boolean = false,
+    val isPinned: Boolean = false,
 )
 
 /**
@@ -91,12 +144,16 @@ data class MessageFtsEntity(
 )
 
 /**
- * A page of the topic index, remembered so the feed can resume paging after process death
- * and so a cold start can rebuild the exact list order the user last saw.
+ * A page of one list's topic index, remembered so the feed can resume paging after
+ * process death and so a cold start can rebuild the order the user last saw.
+ *
+ * Keyed by list as well as page: each list pages independently, and sharing a cursor
+ * across lists would resume `netdev` at `lkml`'s position.
  */
-@Entity(tableName = "feed_pages")
+@Entity(tableName = "feed_pages", primaryKeys = ["listSlug", "pageIndex"])
 data class FeedPageEntity(
-    @PrimaryKey val pageIndex: Int,
+    val listSlug: String,
+    val pageIndex: Int,
     val cursor: String?,
     val nextCursor: String?,
     val fetchedAtEpochMillis: Long,

@@ -18,6 +18,8 @@ data class ThreadSummary(
     val isSaved: Boolean = false,
     /** Set once the full mbox has been downloaded and parsed into Room. */
     val isCached: Boolean = false,
+    /** Which archive this thread came from; used to build its mbox and permalink URLs. */
+    val sourceList: String = MailingLists.ALL,
 ) {
     /** Patch series and version, e.g. `[PATCH v3 04/12]`, parsed out of the subject. */
     val tags: SubjectTags get() = SubjectTags.parse(subject)

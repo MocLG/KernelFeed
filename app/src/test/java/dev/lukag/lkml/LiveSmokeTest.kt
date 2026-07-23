@@ -5,6 +5,8 @@ import dev.lukag.lkml.data.remote.BotChallengeInterceptor
 import dev.lukag.lkml.data.remote.LoreUrls
 import dev.lukag.lkml.data.remote.UserAgentInterceptor
 import dev.lukag.lkml.data.remote.parser.LoreHtmlParsers
+import dev.lukag.lkml.data.remote.parser.ManifestParser
+import dev.lukag.lkml.domain.model.MailingLists
 import dev.lukag.lkml.domain.parser.BodyParser
 import dev.lukag.lkml.domain.parser.ThreadTreeBuilder
 import okhttp3.OkHttpClient
@@ -43,6 +45,32 @@ class LiveSmokeTest {
 
     private fun body(url: String) =
         client.newCall(Request.Builder().url(url).build()).execute()
+
+    @Test
+    fun catalogueAndPerListFeeds() {
+        val lists = body(LoreUrls.manifest()).use { ManifestParser.parseGzipped(it.body!!.byteStream()) }
+        println("CATALOG lists=${lists.size}")
+        println("  featured present=${lists.count { it.isFeatured }}")
+
+        for (slug in listOf("all", "lkml", "linux-staging", "netdev", "bpf")) {
+            val html = body(LoreUrls.topicIndex(slug, null)).use { it.body!!.string() }
+            val page = LoreHtmlParsers.parseTopicIndex(html)
+            println("FEED %-16s topics=%-4d cursor=%s".format(slug, page.topics.size, page.nextCursor))
+            println("     top: ${page.topics.firstOrNull()?.subject?.take(60)}")
+        }
+
+        // A thread discovered on a narrow list must resolve from that list, and the
+        // aggregate must be shown to be an unreliable first choice for recent threads.
+        val staging = LoreHtmlParsers.parseTopicIndex(
+            body(LoreUrls.topicIndex("linux-staging", null)).use { it.body!!.string() },
+        ).topics.first()
+
+        val aggregateCode = body(LoreUrls.threadMbox(MailingLists.AGGREGATE, staging.rootMessageId))
+            .use { it.code }
+        val viaAll = body(LoreUrls.threadMbox("linux-staging", staging.rootMessageId))
+            .use { r -> GZIPInputStream(r.body!!.byteStream()).use { MboxParser.parseAll(it, staging.rootMessageId) } }
+        println("CROSS-LIST staging '${staging.subject.take(40)}' aggregateHttp=$aggregateCode ownList=${viaAll.size} messages")
+    }
 
     @Test
     fun live() {

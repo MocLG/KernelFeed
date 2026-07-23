@@ -23,41 +23,48 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import androidx.navigation.NavType
 import dev.lukag.lkml.data.remote.LoreUrls
-import dev.lukag.lkml.data.repository.ThreadRepositoryImpl
 import dev.lukag.lkml.ui.feed.FeedScreen
+import dev.lukag.lkml.ui.lists.ListCatalogScreen
 import dev.lukag.lkml.ui.saved.SavedScreen
 import dev.lukag.lkml.ui.search.SearchScreen
 import dev.lukag.lkml.ui.thread.ThreadScreen
 import kotlin.text.Charsets.UTF_8
 
 private object Routes {
-    const val FEED = "feed"
+    const val LISTS = "lists"
     const val SEARCH = "search"
     const val SAVED = "saved"
+    const val FEED = "feed/{listSlug}"
     const val THREAD = "thread/{rootMessageId}"
 
     /**
-     * Message-IDs contain `/`, `?`, `#` and `%`, all of which are structural in a
-     * navigation route.
+     * List slugs go into the route verbatim.
      *
-     * Percent-encoding is the obvious fix but not a safe one here: Navigation decodes
-     * string path arguments itself, so an encoded ID would be decoded once by the library
-     * and, if the caller decoded again, a Message-ID containing a literal `%` would be
-     * corrupted. URL-safe Base64 sidesteps the question entirely — the route segment
-     * contains no reserved characters, so nothing along the way is tempted to interpret
-     * it, and [MessageIdRoute.decode] is the single place that reverses it.
+     * Every one of the ~350 slugs in lore's manifest matches `[A-Za-z0-9._-]+`, so none
+     * contains a character that is structural in a route. (Message-IDs are a different
+     * story — see [MessageIdRoute].)
      */
+    fun feed(listSlug: String) = "feed/$listSlug"
+
     fun thread(rootMessageId: String) = "thread/${MessageIdRoute.encode(rootMessageId)}"
 }
 
-/** Route-safe encoding for Message-IDs, shared with `ThreadViewModel`. */
+/**
+ * Route-safe encoding for Message-IDs, shared with `ThreadViewModel`.
+ *
+ * Percent-encoding is the obvious choice but not a safe one: Navigation decodes string
+ * path arguments itself, so an encoded ID would be decoded once by the library and, if
+ * the caller decoded again, an ID containing a literal `%` would be corrupted. URL-safe
+ * Base64 sidesteps the question — the segment contains no reserved characters, so nothing
+ * along the way is tempted to interpret it.
+ */
 object MessageIdRoute {
     private const val FLAGS = Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
 
@@ -75,7 +82,7 @@ private data class TopLevelDestination(
 )
 
 private val TOP_LEVEL = listOf(
-    TopLevelDestination(Routes.FEED, "Threads", Icons.Default.Forum),
+    TopLevelDestination(Routes.LISTS, "Lists", Icons.Default.Forum),
     TopLevelDestination(Routes.SEARCH, "Search", Icons.Default.Search),
     TopLevelDestination(Routes.SAVED, "Saved", Icons.Default.Bookmarks),
 )
@@ -88,8 +95,11 @@ fun LkmlApp(navController: NavHostController = rememberNavController()) {
     val currentRoute = backStackEntry?.destination?.route
     val isTopLevel = currentRoute in TOP_LEVEL.map { it.route }
 
-    val openInBrowser: (String) -> Unit = { messageId ->
-        val url = LoreUrls.permalink(ThreadRepositoryImpl.DEFAULT_LIST, messageId)
+    // Built from the thread's own list, not the aggregate: `/all/` lags the per-list
+    // indexes, so an aggregate permalink 404s for exactly the recent threads a reader is
+    // most likely to want to open in a browser.
+    val openInBrowser: (String, String) -> Unit = { listSlug, messageId ->
+        val url = LoreUrls.permalink(listSlug, messageId)
         context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri()))
     }
 
@@ -99,8 +109,12 @@ fun LkmlApp(navController: NavHostController = rememberNavController()) {
                 TopAppBar(
                     title = {
                         Text(
-                            text = TOP_LEVEL.firstOrNull { it.route == currentRoute }?.label
-                                ?: "LKML",
+                            text = when (currentRoute) {
+                                Routes.LISTS -> "Mailing lists"
+                                Routes.SEARCH -> "Search"
+                                Routes.SAVED -> "Saved"
+                                else -> "LKML"
+                            },
                             style = MaterialTheme.typography.titleLarge,
                         )
                     },
@@ -134,11 +148,20 @@ fun LkmlApp(navController: NavHostController = rememberNavController()) {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = Routes.FEED,
+            startDestination = Routes.LISTS,
             modifier = Modifier.padding(padding),
         ) {
-            composable(Routes.FEED) {
+            composable(Routes.LISTS) {
+                ListCatalogScreen(
+                    onOpenList = { navController.navigate(Routes.feed(it.slug)) },
+                )
+            }
+            composable(
+                route = Routes.FEED,
+                arguments = listOf(navArgument("listSlug") { type = NavType.StringType }),
+            ) {
                 FeedScreen(
+                    onBack = { navController.popBackStack() },
                     onOpenThread = { navController.navigate(Routes.thread(it.rootMessageId)) },
                 )
             }
@@ -154,11 +177,7 @@ fun LkmlApp(navController: NavHostController = rememberNavController()) {
             }
             composable(
                 route = Routes.THREAD,
-                arguments = listOf(
-                    navArgument("rootMessageId") {
-                        type = NavType.StringType
-                    },
-                ),
+                arguments = listOf(navArgument("rootMessageId") { type = NavType.StringType }),
             ) {
                 // The argument stays encoded all the way into SavedStateHandle;
                 // ThreadViewModel decodes it. Rewriting the arguments Bundle here would

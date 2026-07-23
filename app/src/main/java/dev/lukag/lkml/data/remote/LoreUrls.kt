@@ -53,6 +53,14 @@ object LoreUrls {
 
     fun newAtom(list: String): String = "$BASE$list/new.atom"
 
+    /**
+     * The public-inbox catalogue of every archived list, gzipped JSON.
+     *
+     * Served as `application/gzip`, so it needs explicit decompression rather than
+     * OkHttp's transport-level handling.
+     */
+    fun manifest(): String = "${BASE}manifest.js.gz"
+
     private fun encodeQuery(raw: String): String = buildString(raw.length + 8) {
         for (b in raw.toByteArray(Charsets.UTF_8)) {
             val c = b.toInt().toChar()

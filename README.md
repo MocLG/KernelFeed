@@ -16,11 +16,30 @@ documentation. It is the foundation the data layer is built on.
 
 | Purpose | Endpoint | Format |
 |---|---|---|
-| Thread feed | `/lkml/`, next page `/lkml/?t=<cursor>` | HTML topic list, ~100 threads / 36 KB |
-| Search | `/lkml/?q=<query>&o=<offset>` | HTML, 200 hits per page |
-| Full thread | `/lkml/<root-message-id>/t.mbox.gz` | gzipped **mboxrd** |
-| Single message | `/lkml/<message-id>/raw` | RFC 5322 |
-| Newest messages | `/lkml/new.atom` | Atom, 25 entries |
+| List catalogue | `/manifest.js.gz` | gzipped JSON, ~400 git epochs → 353 lists |
+| Thread feed | `/<list>/`, next page `/<list>/?t=<cursor>` | HTML topic list, ~50–100 threads / 36 KB |
+| Search | `/<list>/?q=<query>&o=<offset>` | HTML, 200 hits per page |
+| Full thread | `/<list>/<root-message-id>/t.mbox.gz` | gzipped **mboxrd** |
+| Single message | `/<list>/<message-id>/raw` | RFC 5322 |
+| Newest messages | `/<list>/new.atom` | Atom, 25 entries |
+
+`<list>` is any slug from the manifest (`lkml`, `netdev`, `linux-staging`, …) plus the
+virtual aggregate `all`, which is browsable but absent from the manifest and so is
+injected by hand.
+
+### The aggregate inbox lags, and cannot be a universal source
+
+`/all/` looks like it should be the one place to fetch any thread from, and it is not.
+Measured against live data, the newest thread on 4 of 9 sampled lists returned **404**
+from `/all/` while resolving fine on its own list — the aggregate index catches up behind
+the per-list ones. But when `/all/` *does* have a thread it returns a **richer** result,
+unioning in replies that only went to a cross-posted list (one lkml thread: 172 KB via
+`/all/` against 53 KB via `/lkml/`).
+
+So each thread records the list it was discovered in and is fetched from there, with
+`/all/` as a fallback for threads whose origin is unknown (search hits) or which that list
+no longer carries. Only a 404 advances to the fallback; other failures propagate, since
+retrying a timeout against a second path just doubles the wait.
 
 ### The User-Agent is load-bearing
 
@@ -63,6 +82,25 @@ domain/      Models, parsers (diff, body, thread tree), use cases, repository in
 data/        Room + Retrofit/OkHttp + mbox ingest
 ```
 
+### Navigation
+
+The app opens on the **list catalogue**, not on a single hardcoded feed:
+
+```
+Lists (catalogue)  →  feed/<slug>  →  thread/<message-id>
+Search ────────────────────────────↗
+Saved  ────────────────────────────↗
+```
+
+The catalogue is ordered pinned → curated → most recently active, with search over all
+353 lists. Ordering alphabetically would bury the dozen lists anyone actually opens under
+~340 narrow subsystem and CI archives.
+
+Feed membership is a **join table** (`feed_entries`), not a column on the thread. The same
+thread genuinely appears in several lists at once — a networking patch is on `netdev`,
+`lkml` and `all` — and a single `feedList` column would make those lists fight over the
+row, with whichever refreshed last winning and the others losing the thread entirely.
+
 `domain` has no Android dependencies apart from the parsers' complete absence of them,
 which is why the diff engine, body segmenter and tree builder are all testable as plain
 JVM code.
@@ -74,8 +112,8 @@ by the network.** Network calls are one-shot `suspend` functions whose only job 
 write into Room; the UI updates because the database changed.
 
 ```kotlin
-fun observeFeed(): Flow<List<ThreadSummary>>   // Room
-suspend fun refreshFeed(): Resource<Unit>      // network → Room
+fun observeFeed(listSlug: String): Flow<List<ThreadSummary>>   // Room
+suspend fun refreshFeed(listSlug: String): Resource<Unit>      // network → Room
 ```
 
 Consequences that fall out for free:
@@ -112,9 +150,11 @@ Three separate lifetimes govern a thread, and conflating them would be a mistake
 
 Note that none of these control how fast a thread reopens. Because the thread screen
 observes Room, cached messages paint immediately regardless; the read TTL only decides
-whether a network request is also worth making. Feed refreshes use insert-then-patch rather than `REPLACE`, so server-owned
-columns never clobber client-owned ones — a plain upsert would silently un-save the user's
-threads on every refresh.
+whether a network request is also worth making.
+
+Feed refreshes use insert-then-patch rather than `REPLACE`, so server-owned columns never
+clobber client-owned ones — a plain upsert would silently un-save the user's threads on
+every refresh.
 
 ---
 
@@ -219,7 +259,7 @@ serialisable against it.
 
 ### Tests
 
-28 unit tests, run against **real captured responses** from lore.kernel.org
+36 unit tests, run against **real captured responses** from lore.kernel.org
 (`app/src/test/resources/`) rather than synthetic fixtures — hand-written samples tend to
 encode the parser's own assumptions, while production data carries the details that
 actually break parsers: public-inbox's line-broken `href` attributes, mboxrd escaping,
@@ -240,10 +280,11 @@ is suspected, to confirm the captured fixtures still match what the archive serv
 
 ## Status
 
-Feed, search, thread tree, patch rendering, offline saving and background sync are
-implemented and build clean (`assembleDebug`, `assembleRelease` with R8, `lintDebug` with
-zero errors). The full pipeline has been verified end-to-end against production
-lore.kernel.org.
+List catalogue, per-list feeds, search, thread tree, patch rendering, offline saving and
+background sync are implemented and build clean (`assembleDebug`, `assembleRelease` with
+R8, `lintDebug` with zero errors). The full pipeline has been verified end-to-end against
+production lore.kernel.org, across `all`, `lkml`, `linux-staging`, `netdev` and `bpf`.
 
-Not yet built: reply/compose (the archive is read-only; sending would need SMTP), per-list
-switching beyond `lkml`, and instrumented UI tests.
+Not yet built: reply/compose (the archive is read-only; sending would need SMTP), and
+instrumented UI tests. **The app has not been run on a device** — there is no emulator in
+this environment, so the Compose layer is verified by compilation and lint only.

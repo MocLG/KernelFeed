@@ -14,7 +14,10 @@ import dev.lukag.lkml.data.remote.BotChallengeException
 import dev.lukag.lkml.data.remote.LoreApi
 import dev.lukag.lkml.data.remote.LoreUrls
 import dev.lukag.lkml.data.remote.parser.LoreHtmlParsers
+import dev.lukag.lkml.data.remote.parser.ManifestParser
 import dev.lukag.lkml.di.IoDispatcher
+import dev.lukag.lkml.domain.model.MailingList
+import dev.lukag.lkml.domain.model.MailingLists
 import dev.lukag.lkml.domain.model.Message
 import dev.lukag.lkml.domain.model.ThreadSummary
 import dev.lukag.lkml.domain.repository.SearchOutcome
@@ -43,12 +46,43 @@ class ThreadRepositoryImpl @Inject constructor(
 
     private val threadDao = db.threadDao()
     private val messageDao = db.messageDao()
-    private val list = DEFAULT_LIST
+    private val listDao = db.mailingListDao()
+
+    // ---- Catalogue -------------------------------------------------------------------
+
+    override fun observeLists(): Flow<List<MailingList>> =
+        listDao.observeAll().map { rows -> rows.map { it.toDomain() } }
+
+    override fun searchLists(query: String): Flow<List<MailingList>> =
+        listDao.search(query.trim()).map { rows -> rows.map { it.toDomain() } }
+
+    override fun observeList(slug: String): Flow<MailingList?> =
+        listDao.observeList(slug).map { it?.toDomain() }
+
+    override suspend fun refreshLists(): Resource<Int> = ioResult {
+        val response = api.getStream(LoreUrls.manifest())
+        val lists = response.requireBody("manifest").byteStream().use {
+            ManifestParser.parseGzipped(it)
+        }
+        if (lists.isEmpty()) throw ParseFailure("manifest contained no lists")
+        listDao.upsertCatalog(lists.map { it.toEntity() })
+        lists.size
+    }
+
+    override suspend fun ensureListsLoaded(): Resource<Int> {
+        val existing = withContext(io) { listDao.count() }
+        // The catalogue changes on the order of weeks; refetching it on every launch
+        // would spend a request to learn nothing.
+        return if (existing > 0) Resource.Success(existing) else refreshLists()
+    }
+
+    override suspend fun setListPinned(slug: String, pinned: Boolean): Resource<Unit> =
+        ioResult { listDao.setPinned(slug, pinned) }
 
     // ---- Reads: always from Room, never gated on the network. -------------------------
 
-    override fun observeFeed(): Flow<List<ThreadSummary>> =
-        threadDao.observeFeed().map { rows -> rows.map { it.toDomain() } }
+    override fun observeFeed(listSlug: String): Flow<List<ThreadSummary>> =
+        threadDao.observeFeed(listSlug).map { rows -> rows.map { it.toDomain() } }
 
     override fun observeSaved(): Flow<List<ThreadSummary>> =
         threadDao.observeSaved().map { rows -> rows.map { it.toDomain() } }
@@ -64,30 +98,37 @@ class ThreadRepositoryImpl @Inject constructor(
 
     // ---- Feed ------------------------------------------------------------------------
 
-    override suspend fun refreshFeed(): Resource<Unit> = ioResult {
+    override suspend fun refreshFeed(listSlug: String): Resource<Unit> = ioResult {
         // Fetch before opening the transaction: holding a write lock across a network
         // round trip would block every reader for the duration of the request.
-        val page = fetchTopicPage(cursor = null)
+        val page = fetchTopicPage(listSlug, cursor = null)
         db.withTransaction {
-            threadDao.clearFeedFlag()
-            threadDao.clearPages()
-            threadDao.upsertFeed(page.topics.map { it.toEntity(inFeed = true) })
+            threadDao.clearFeed(listSlug)
+            threadDao.clearPages(listSlug)
+            threadDao.upsertFeed(
+                listSlug,
+                page.topics.map { it.copy(sourceList = listSlug).toEntity() },
+            )
             threadDao.upsertPage(
-                FeedPageEntity(0, null, page.nextCursor, System.currentTimeMillis()),
+                FeedPageEntity(listSlug, 0, null, page.nextCursor, System.currentTimeMillis()),
             )
             threadDao.pruneOrphanStubs()
         }
     }
 
-    override suspend fun loadMoreFeed(): Resource<Boolean> = ioResult {
-        val last = threadDao.lastPage()
+    override suspend fun loadMoreFeed(listSlug: String): Resource<Boolean> = ioResult {
+        val last = threadDao.lastPage(listSlug)
         val cursor = last?.nextCursor
         if (last != null && cursor == null) return@ioResult false // Archive exhausted.
 
-        val page = fetchTopicPage(cursor)
-        threadDao.upsertFeed(page.topics.map { it.toEntity(inFeed = true) })
+        val page = fetchTopicPage(listSlug, cursor)
+        threadDao.upsertFeed(
+            listSlug,
+            page.topics.map { it.copy(sourceList = listSlug).toEntity() },
+        )
         threadDao.upsertPage(
             FeedPageEntity(
+                listSlug = listSlug,
                 pageIndex = (last?.pageIndex ?: -1) + 1,
                 cursor = cursor,
                 nextCursor = page.nextCursor,
@@ -97,8 +138,8 @@ class ThreadRepositoryImpl @Inject constructor(
         page.nextCursor != null && page.topics.isNotEmpty()
     }
 
-    private suspend fun fetchTopicPage(cursor: String?) =
-        LoreHtmlParsers.parseTopicIndex(readHtml(LoreUrls.topicIndex(list, cursor)))
+    private suspend fun fetchTopicPage(listSlug: String, cursor: String?) =
+        LoreHtmlParsers.parseTopicIndex(readHtml(LoreUrls.topicIndex(listSlug, cursor)))
 
     // ---- Thread bodies ---------------------------------------------------------------
 
@@ -133,14 +174,13 @@ class ThreadRepositoryImpl @Inject constructor(
                             lastActivityEpochMillis = 0L,
                             messageCount = 0,
                             latestAuthor = null,
-                            inFeed = false,
+                            sourceList = MailingLists.ALL,
                         ),
                     ),
                 )
             }
 
-            val response = api.getStream(LoreUrls.threadMbox(list, rootMessageId))
-            val body = response.requireBody("thread mbox")
+            val body = fetchThreadMbox(rootMessageId, existing?.sourceList)
 
             var count = 0
             var newestDate = Long.MIN_VALUE
@@ -204,11 +244,13 @@ class ThreadRepositoryImpl @Inject constructor(
 
     override suspend fun searchRemote(query: String, offset: Int): Resource<SearchOutcome> =
         ioResult {
-            val html = readHtml(LoreUrls.search(list, query, offset))
+            val html = readHtml(LoreUrls.search(MailingLists.AGGREGATE, query, offset))
             val page = LoreHtmlParsers.parseSearchResults(html, offset)
-            // Search hits are recorded as stubs (inFeed = false) so tapping one has a row
-            // to attach messages to, without them leaking into the feed list.
-            threadDao.insertIgnoring(page.results.map { it.toEntity(inFeed = false) })
+            // Search hits are recorded as bare thread rows with no feed membership, so
+            // tapping one has a row to attach messages to without leaking into any feed.
+            threadDao.insertIgnoring(
+                page.results.map { it.copy(sourceList = MailingLists.ALL).toEntity() },
+            )
             SearchOutcome(page.results, page.nextOffset)
         }
 
@@ -249,6 +291,41 @@ class ThreadRepositoryImpl @Inject constructor(
     }
 
     // ---- Plumbing --------------------------------------------------------------------
+
+    /**
+     * Fetches a thread's mbox, trying the list it came from before the aggregate.
+     *
+     * The aggregate inbox cannot be used unconditionally: `/all/` lags behind the
+     * per-list indexes and returns 404 for recently-posted threads — measured against
+     * live data, 4 of 9 sampled lists' newest threads were missing from it while every
+     * one resolved on its own list. Conversely, when `/all/` *does* have a thread it
+     * returns a richer result, because it unions in replies that only went to a
+     * cross-posted list (an lkml thread measured 172 KB via `/all/` against 53 KB via
+     * `/lkml/`).
+     *
+     * So the source list is tried first for reliability, and the aggregate second as a
+     * fallback for threads whose originating list is unknown or no longer carries them.
+     * Only 404 advances to the next candidate; any other failure propagates, because
+     * retrying a timeout against a second host path just doubles the wait.
+     */
+    private suspend fun fetchThreadMbox(
+        rootMessageId: String,
+        sourceList: String?,
+    ): ResponseBody {
+        val candidates = listOfNotNull(sourceList, MailingLists.ALL).distinct()
+        for ((index, list) in candidates.withIndex()) {
+            val response = api.getStream(LoreUrls.threadMbox(list, rootMessageId))
+            if (response.isSuccessful) {
+                return response.body() ?: throw ParseFailure("empty thread mbox response")
+            }
+            response.errorBody()?.close()
+            val isLast = index == candidates.lastIndex
+            if (response.code() != 404 || isLast) {
+                throw HttpFailure(response.code(), response.message())
+            }
+        }
+        throw ParseFailure("no archive carries thread $rootMessageId")
+    }
 
     private suspend fun readHtml(url: String): String {
         val response = api.getHtml(url)
@@ -297,7 +374,6 @@ class ThreadRepositoryImpl @Inject constructor(
     private class ParseFailure(message: String) : IOException(message)
 
     companion object {
-        const val DEFAULT_LIST = "lkml"
         private const val BATCH_SIZE = 40
         private const val GZIP_BUFFER = 16 * 1024
 

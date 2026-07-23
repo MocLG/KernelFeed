@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import dev.lukag.lkml.data.local.entity.FeedEntryEntity
 import dev.lukag.lkml.data.local.entity.FeedPageEntity
 import dev.lukag.lkml.data.local.entity.ThreadEntity
 import kotlinx.coroutines.flow.Flow
@@ -12,8 +13,21 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ThreadDao {
 
-    @Query("SELECT * FROM threads WHERE inFeed = 1 ORDER BY lastActivityEpochMillis DESC")
-    fun observeFeed(): Flow<List<ThreadEntity>>
+    /**
+     * One list's feed, ordered by that list's own activity timestamps.
+     *
+     * The join is what makes a thread able to sit in several lists' feeds at once
+     * without them overwriting each other.
+     */
+    @Query(
+        """
+        SELECT t.* FROM threads AS t
+        JOIN feed_entries AS f ON f.rootMessageId = t.rootMessageId
+        WHERE f.listSlug = :listSlug
+        ORDER BY f.lastActivityEpochMillis DESC
+        """,
+    )
+    fun observeFeed(listSlug: String): Flow<List<ThreadEntity>>
 
     @Query("SELECT * FROM threads WHERE isSaved = 1 ORDER BY cachedAtEpochMillis DESC")
     fun observeSaved(): Flow<List<ThreadEntity>>
@@ -27,6 +41,12 @@ interface ThreadDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIgnoring(threads: List<ThreadEntity>): List<Long>
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFeedEntries(entries: List<FeedEntryEntity>)
+
+    @Query("DELETE FROM feed_entries WHERE listSlug = :listSlug")
+    suspend fun clearFeed(listSlug: String)
+
     /**
      * Upserts feed rows without clobbering local state.
      *
@@ -36,11 +56,11 @@ interface ThreadDao {
      * strictly separate.
      */
     @Transaction
-    suspend fun upsertFeed(threads: List<ThreadEntity>) {
+    suspend fun upsertFeed(listSlug: String, threads: List<ThreadEntity>) {
         val inserted = insertIgnoring(threads)
         threads.forEachIndexed { index, thread ->
             if (inserted[index] == -1L) {
-                updateFeedFields(
+                updateThreadMeta(
                     id = thread.rootMessageId,
                     subject = thread.subject,
                     lastActivity = thread.lastActivityEpochMillis,
@@ -49,33 +69,18 @@ interface ThreadDao {
                 )
             }
         }
+        insertFeedEntries(
+            threads.map {
+                FeedEntryEntity(listSlug, it.rootMessageId, it.lastActivityEpochMillis)
+            },
+        )
     }
 
-    @Query(
-        """
-        UPDATE threads
-           SET subject = :subject,
-               lastActivityEpochMillis = MAX(lastActivityEpochMillis, :lastActivity),
-               messageCount = MAX(messageCount, :messageCount),
-               latestAuthor = COALESCE(:latestAuthor, latestAuthor),
-               inFeed = 1
-         WHERE rootMessageId = :id
-        """,
-    )
-    suspend fun updateFeedFields(
-        id: String,
-        subject: String,
-        lastActivity: Long,
-        messageCount: Int,
-        latestAuthor: String?,
-    )
-
     /**
-     * Adopts metadata recovered from a downloaded mbox.
+     * Adopts metadata recovered from a downloaded mbox or a feed page.
      *
-     * Deliberately does **not** touch `inFeed`, unlike [updateFeedFields]: a thread opened
-     * from search results must not silently graft itself onto the feed list just because
-     * its body was fetched.
+     * Never touches feed membership: a thread opened from search must not graft itself
+     * onto a list's feed just because its body was fetched.
      */
     @Query(
         """
@@ -110,15 +115,11 @@ interface ThreadDao {
     )
     suspend fun markCached(id: String, now: Long, count: Int, latestAuthor: String?)
 
-    @Query("UPDATE threads SET inFeed = 0")
-    suspend fun clearFeedFlag()
-
     /**
      * Evicts cached bodies for threads the user never saved.
      *
-     * Only [ThreadEntity.isCached] rows are candidates and saved threads are excluded
-     * unconditionally, so eviction can never take away content the user asked to keep.
-     * The messages themselves go via the CASCADE on the foreign key.
+     * Saved threads are excluded unconditionally, so eviction can never take away content
+     * the user asked to keep. Messages go via the CASCADE on the foreign key.
      */
     @Query(
         """
@@ -130,7 +131,15 @@ interface ThreadDao {
     )
     suspend fun evictStaleCached(before: Long): Int
 
-    @Query("DELETE FROM threads WHERE isSaved = 0 AND inFeed = 0 AND isCached = 0")
+    /** Threads that are in no feed, unsaved and uncached carry no value; drop them. */
+    @Query(
+        """
+        DELETE FROM threads
+         WHERE isSaved = 0
+           AND isCached = 0
+           AND rootMessageId NOT IN (SELECT rootMessageId FROM feed_entries)
+        """,
+    )
     suspend fun pruneOrphanStubs(): Int
 
     @Query("SELECT COUNT(*) FROM threads WHERE isSaved = 1")
@@ -142,9 +151,9 @@ interface ThreadDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPage(page: FeedPageEntity)
 
-    @Query("SELECT * FROM feed_pages ORDER BY pageIndex DESC LIMIT 1")
-    suspend fun lastPage(): FeedPageEntity?
+    @Query("SELECT * FROM feed_pages WHERE listSlug = :listSlug ORDER BY pageIndex DESC LIMIT 1")
+    suspend fun lastPage(listSlug: String): FeedPageEntity?
 
-    @Query("DELETE FROM feed_pages")
-    suspend fun clearPages()
+    @Query("DELETE FROM feed_pages WHERE listSlug = :listSlug")
+    suspend fun clearPages(listSlug: String)
 }

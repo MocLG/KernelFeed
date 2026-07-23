@@ -1,7 +1,9 @@
 package dev.lukag.lkml.data.local
 
+import dev.lukag.lkml.data.local.entity.MailingListEntity
 import dev.lukag.lkml.data.local.entity.MessageEntity
 import dev.lukag.lkml.data.local.entity.ThreadEntity
+import dev.lukag.lkml.domain.model.MailingList
 import dev.lukag.lkml.domain.model.Message
 import dev.lukag.lkml.domain.model.ThreadSummary
 
@@ -13,9 +15,10 @@ fun ThreadEntity.toDomain() = ThreadSummary(
     latestAuthor = latestAuthor,
     isSaved = isSaved,
     isCached = isCached,
+    sourceList = sourceList,
 )
 
-fun ThreadSummary.toEntity(inFeed: Boolean) = ThreadEntity(
+fun ThreadSummary.toEntity() = ThreadEntity(
     rootMessageId = rootMessageId,
     subject = subject,
     lastActivityEpochMillis = lastActivityEpochMillis,
@@ -23,7 +26,25 @@ fun ThreadSummary.toEntity(inFeed: Boolean) = ThreadEntity(
     latestAuthor = latestAuthor,
     isSaved = isSaved,
     isCached = isCached,
-    inFeed = inFeed,
+    sourceList = sourceList,
+)
+
+fun MailingListEntity.toDomain() = MailingList(
+    slug = slug,
+    title = title,
+    description = description,
+    lastActivityEpochMillis = lastActivityEpochMillis,
+    isFeatured = isFeatured,
+    isPinned = isPinned,
+)
+
+fun MailingList.toEntity() = MailingListEntity(
+    slug = slug,
+    title = title,
+    description = description,
+    lastActivityEpochMillis = lastActivityEpochMillis,
+    isFeatured = isFeatured,
+    isPinned = isPinned,
 )
 
 fun MessageEntity.toDomain() = Message(

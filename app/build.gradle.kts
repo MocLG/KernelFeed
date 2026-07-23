@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
 }
 
@@ -111,6 +112,7 @@ dependencies {
     implementation(libs.mime4j.core)
     implementation(libs.mime4j.dom)
 
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.datastore.preferences)
 
     testImplementation(libs.junit)

@@ -37,6 +37,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.lukag.lkml.domain.model.MailingLists
 import dev.lukag.lkml.ui.components.EmptyState
 import dev.lukag.lkml.ui.components.ErrorBanner
 import dev.lukag.lkml.ui.components.ErrorState
@@ -46,7 +47,7 @@ import dev.lukag.lkml.ui.components.OfflineBanner
 @Composable
 fun ThreadScreen(
     onBack: () -> Unit,
-    onOpenInBrowser: (String) -> Unit,
+    onOpenInBrowser: (listSlug: String, messageId: String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: ThreadViewModel = hiltViewModel(),
 ) {
@@ -124,7 +125,14 @@ fun ThreadScreen(
                             },
                         )
                     }
-                    IconButton(onClick = { onOpenInBrowser(state.rootMessageId) }) {
+                    IconButton(
+                        onClick = {
+                            onOpenInBrowser(
+                                state.summary?.sourceList ?: MailingLists.AGGREGATE,
+                                state.rootMessageId,
+                            )
+                        },
+                    ) {
                         Icon(Icons.Default.OpenInBrowser, contentDescription = "Open in browser")
                     }
                     IconButton(onClick = { viewModel.load(force = true) }) {

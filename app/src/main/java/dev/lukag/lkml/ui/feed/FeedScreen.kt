@@ -9,7 +9,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -38,6 +45,7 @@ import kotlinx.coroutines.flow.filter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FeedScreen(
+    onBack: () -> Unit,
     onOpenThread: (ThreadSummary) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FeedViewModel = hiltViewModel(),
@@ -68,27 +76,78 @@ fun FeedScreen(
             .collect { viewModel.loadMore() }
     }
 
+    Scaffold(
+        modifier = modifier,
+        topBar = {
+            TopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to lists",
+                        )
+                    }
+                },
+                title = {
+                    Column {
+                        Text(
+                            text = state.listSlug,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                        state.list?.description?.takeIf { it != state.listSlug }?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        FeedContent(
+            state = state,
+            listState = listState,
+            onRefresh = viewModel::refresh,
+            onOpenThread = onOpenThread,
+            onToggleSaved = viewModel::toggleSaved,
+            onDismissError = viewModel::dismissError,
+            modifier = Modifier.padding(padding),
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun FeedContent(
+    state: FeedUiState,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    onRefresh: () -> Unit,
+    onOpenThread: (ThreadSummary) -> Unit,
+    onToggleSaved: (ThreadSummary) -> Unit,
+    onDismissError: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Column(modifier.fillMaxSize()) {
         if (state.isOffline) OfflineBanner()
         state.error?.let { error ->
             if (state.threads.isNotEmpty()) {
-                ErrorBanner(
-                    error = error,
-                    onRetry = { viewModel.refresh() },
-                    onDismiss = viewModel::dismissError,
-                )
+                ErrorBanner(error = error, onRetry = onRefresh, onDismiss = onDismissError)
             }
         }
 
         val error = state.error
         if (state.threads.isEmpty() && error != null && !state.isRefreshing) {
-            ErrorState(error = error, onRetry = { viewModel.refresh() })
+            ErrorState(error = error, onRetry = onRefresh)
             return@Column
         }
 
         PullToRefreshBox(
             isRefreshing = state.isRefreshing,
-            onRefresh = { viewModel.refresh() },
+            onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
             if (state.showEmptyState) {
@@ -97,10 +156,7 @@ fun FeedScreen(
                     subtitle = "Pull down to fetch the latest activity from lore.kernel.org.",
                 )
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                ) {
+                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     // Message-ID is globally unique and stable, so Compose can reuse and
                     // reorder rows correctly across refreshes instead of rebuilding them.
                     items(
@@ -111,7 +167,7 @@ fun FeedScreen(
                         ThreadRow(
                             thread = thread,
                             onClick = { onOpenThread(thread) },
-                            onToggleSaved = { viewModel.toggleSaved(thread) },
+                            onToggleSaved = { onToggleSaved(thread) },
                         )
                         HorizontalDivider(
                             color = MaterialTheme.colorScheme.outlineVariant,

@@ -1,11 +1,13 @@
 package dev.lukag.lkml.ui.feed
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.lukag.lkml.core.AppError
 import dev.lukag.lkml.core.NetworkMonitor
 import dev.lukag.lkml.core.Resource
+import dev.lukag.lkml.domain.model.MailingList
 import dev.lukag.lkml.domain.model.ThreadSummary
 import dev.lukag.lkml.domain.repository.ThreadRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,6 +20,8 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class FeedUiState(
+    val listSlug: String = "",
+    val list: MailingList? = null,
     val threads: List<ThreadSummary> = emptyList(),
     val isRefreshing: Boolean = false,
     val isLoadingMore: Boolean = false,
@@ -31,9 +35,15 @@ data class FeedUiState(
 
 @HiltViewModel
 class FeedViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val repository: ThreadRepository,
     networkMonitor: NetworkMonitor,
 ) : ViewModel() {
+
+    /** Which archive this feed shows; supplied by the route. */
+    private val listSlug: String = checkNotNull(savedStateHandle["listSlug"]) {
+        "FeedViewModel requires a listSlug route argument"
+    }
 
     private val local = MutableStateFlow(LocalState())
 
@@ -52,11 +62,14 @@ class FeedViewModel @Inject constructor(
      * code path where an unreachable network yields a blank screen.
      */
     val state: StateFlow<FeedUiState> = combine(
-        repository.observeFeed(),
+        repository.observeFeed(listSlug),
+        repository.observeList(listSlug),
         local,
         networkMonitor.isOnline,
-    ) { threads, localState, online ->
+    ) { threads, list, localState, online ->
         FeedUiState(
+            listSlug = listSlug,
+            list = list,
             threads = threads,
             isRefreshing = localState.isRefreshing,
             isLoadingMore = localState.isLoadingMore,
@@ -64,7 +77,11 @@ class FeedViewModel @Inject constructor(
             isOffline = !online,
             error = localState.error,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), FeedUiState())
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        FeedUiState(listSlug = listSlug),
+    )
 
     init {
         refresh()
@@ -74,7 +91,7 @@ class FeedViewModel @Inject constructor(
         if (local.value.isRefreshing) return
         viewModelScope.launch {
             local.update { it.copy(isRefreshing = true, error = null) }
-            when (val result = repository.refreshFeed()) {
+            when (val result = repository.refreshFeed(listSlug)) {
                 is Resource.Success ->
                     local.update { it.copy(isRefreshing = false, hasMore = true) }
                 is Resource.Offline ->
@@ -95,7 +112,7 @@ class FeedViewModel @Inject constructor(
         if (current.isLoadingMore || current.isRefreshing || !current.hasMore) return
         viewModelScope.launch {
             local.update { it.copy(isLoadingMore = true) }
-            when (val result = repository.loadMoreFeed()) {
+            when (val result = repository.loadMoreFeed(listSlug)) {
                 is Resource.Success ->
                     local.update { it.copy(isLoadingMore = false, hasMore = result.data) }
                 is Resource.Offline ->

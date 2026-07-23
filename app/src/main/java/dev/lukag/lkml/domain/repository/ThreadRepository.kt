@@ -1,6 +1,7 @@
 package dev.lukag.lkml.domain.repository
 
 import dev.lukag.lkml.core.Resource
+import dev.lukag.lkml.domain.model.MailingList
 import dev.lukag.lkml.domain.model.Message
 import dev.lukag.lkml.domain.model.ThreadSummary
 import kotlinx.coroutines.flow.Flow
@@ -12,10 +13,39 @@ import kotlinx.coroutines.flow.Flow
  * are one-shot `suspend` functions whose only job is to write into Room; the UI then
  * updates because the database changed. That inversion is what makes the app local-first:
  * there is no code path where the screen depends on a request completing.
+ *
+ * Feed operations take a `listSlug`. Thread bodies do not: each thread remembers the
+ * list it was discovered in and is fetched from there, falling back to the aggregate
+ * inbox (see `MailingLists.AGGREGATE`).
  */
 interface ThreadRepository {
 
-    fun observeFeed(): Flow<List<ThreadSummary>>
+    // ---- Catalogue -------------------------------------------------------------------
+
+    fun observeLists(): Flow<List<MailingList>>
+
+    fun searchLists(query: String): Flow<List<MailingList>>
+
+    fun observeList(slug: String): Flow<MailingList?>
+
+    /** Downloads `manifest.js.gz` and refreshes the catalogue. */
+    suspend fun refreshLists(): Resource<Int>
+
+    /** Populates the catalogue on first run if it is empty; a no-op afterwards. */
+    suspend fun ensureListsLoaded(): Resource<Int>
+
+    suspend fun setListPinned(slug: String, pinned: Boolean): Resource<Unit>
+
+    // ---- Feeds -----------------------------------------------------------------------
+
+    fun observeFeed(listSlug: String): Flow<List<ThreadSummary>>
+
+    suspend fun refreshFeed(listSlug: String): Resource<Unit>
+
+    /** Appends the next page. Returns false once the archive has no older page. */
+    suspend fun loadMoreFeed(listSlug: String): Resource<Boolean>
+
+    // ---- Threads ---------------------------------------------------------------------
 
     fun observeSaved(): Flow<List<ThreadSummary>>
 
@@ -25,12 +55,6 @@ interface ThreadRepository {
 
     fun observeCachedBytes(): Flow<Long>
 
-    /** Replaces the feed with the newest page. */
-    suspend fun refreshFeed(): Resource<Unit>
-
-    /** Appends the next page. Returns false once the archive has no older page. */
-    suspend fun loadMoreFeed(): Resource<Boolean>
-
     /**
      * Downloads and parses the thread's mbox unless a fresh copy is already on disk.
      * Returns the number of messages available locally afterwards.
@@ -39,10 +63,14 @@ interface ThreadRepository {
 
     suspend fun setSaved(rootMessageId: String, saved: Boolean): Resource<Unit>
 
+    // ---- Search ----------------------------------------------------------------------
+
     suspend fun searchRemote(query: String, offset: Int): Resource<SearchOutcome>
 
     /** Full-text search over cached bodies; works with no connectivity. */
     suspend fun searchLocal(query: String): Resource<List<Message>>
+
+    // ---- Maintenance -----------------------------------------------------------------
 
     /** Re-downloads saved threads that have gone stale and evicts unsaved cached ones. */
     suspend fun syncSavedThreads(): Resource<SyncOutcome>
