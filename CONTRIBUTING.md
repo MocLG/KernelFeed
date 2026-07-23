@@ -34,6 +34,8 @@ behind the main design decisions.
   ```bash
   ./gradlew testDebugUnitTest -Dlkml.live=true --tests '*LiveSmokeTest*'
   ```
+- **Keep the licence header.** Every `.kt` file carries the GPL/commercial notice at the
+  top; new files need it too, and it must not be removed from existing ones.
 - **Match the surrounding style.** In particular, comments here explain *why* a decision
   was made, especially where the obvious approach is wrong — see the notes on the
   User-Agent requirement and the aggregate-inbox lag. Keep that standard.
@@ -77,10 +79,9 @@ publicly display your Contribution, in any medium and by any means now known or 
 devised, and to license it to others under any terms, including proprietary and commercial
 terms.
 
-*This clause is not boilerplate padding.* In several countries — Germany and France
-among them — an author cannot fully transfer copyright, and moral rights are inalienable.
-Without this fallback the agreement would simply be void for contributors in those
-countries, taking the project's ability to license their code with it.
+This fallback exists because the law of some jurisdictions — including Germany and
+France — does not permit an author to transfer copyright outright. In those jurisdictions
+section 2 has no effect and this section governs instead.
 
 **4. Patents.** You grant the Owner and all recipients of the software a perpetual,
 worldwide, non-exclusive, royalty-free, irrevocable licence under any patent claims you
@@ -135,13 +136,3 @@ Signed-off-by: Your Name <you@example.com>
 `git commit -s` adds it for you. Including that line in a commit you submit means you
 accept this agreement for that contribution. If you are contributing on behalf of an
 employer, say so in the pull request and confirm you have authority to bind them.
-
-### Honest caveat
-
-This agreement was drafted for a small project and has **not been reviewed by a lawyer**.
-It follows the structure used by established copyright-assignment CLAs (an assignment plus
-an exclusive-licence fallback plus a patent grant), but enforceability of assignment
-clauses varies by jurisdiction, and rules on employee-created work and moral rights vary
-more still. If you intend to build a business on the commercial licensing option, have a
-solicitor review this document — and if you are a contributor with any doubt about whether
-you may assign your work, get your own advice before submitting.

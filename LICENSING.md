@@ -83,13 +83,3 @@ This app reads the public mailing-list archives at
 [lore.kernel.org](https://lore.kernel.org/). Those messages are the work of their
 respective authors and are **not** covered by this project's licence. Nothing here grants
 any rights over archived mail, the Linux kernel, or its trademarks.
-
----
-
-## A note on scope
-
-This document explains the intent of the licensing arrangement in plain language. It is
-not legal advice, and it was drafted without review by a lawyer. Before you rely on the
-commercial option in a real transaction, have a solicitor review these terms and the
-contributor agreement for your jurisdiction — particularly the assignment clauses, whose
-enforceability varies by country (see the note in [`CONTRIBUTING.md`](CONTRIBUTING.md)).
