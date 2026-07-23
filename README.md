@@ -7,6 +7,8 @@ offline-first.
 Built for the way kernel mail is actually read: threads are trees, most messages are
 patches, and the interesting ones are long.
 
+**Licence:** GPL v3, or a commercial licence — see [Licence](#licence).
+
 ---
 
 ## The archive: what actually works
@@ -288,3 +290,26 @@ production lore.kernel.org, across `all`, `lkml`, `linux-staging`, `netdev` and 
 Not yet built: reply/compose (the archive is read-only; sending would need SMTP), and
 instrumented UI tests. **The app has not been run on a device** — there is no emulator in
 this environment, so the Compose layer is verified by compilation and lint only.
+
+---
+
+## Licence
+
+Copyright © 2026 Luka Gejak.
+
+Dual-licensed. Use it under the **GNU General Public License v3** ([`LICENSE`](LICENSE)),
+or under a **commercial licence** if the GPL's obligations don't suit you — for closed-source
+products, unpublished modifications, or distribution channels whose terms conflict with the
+GPL.
+
+For commercial licensing, contact **[lukagejak5@gmail.com](mailto:lukagejak5@gmail.com)**.
+
+[`LICENSING.md`](LICENSING.md) explains both options, and lists the third-party dependency
+licences (all Apache 2.0, plus one GPL v2 + Classpath Exception — which is why GPL **v3**
+was chosen: Apache 2.0 is incompatible with GPL v2).
+
+Contributions are covered by a copyright-assignment agreement — see
+[`CONTRIBUTING.md`](CONTRIBUTING.md) before sending a patch.
+
+Archived mail read by this app belongs to its respective authors and is not covered by
+this licence.
