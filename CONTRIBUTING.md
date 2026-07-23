@@ -1,4 +1,4 @@
-# Contributing to LKML
+# Contributing to KernelFeed
 
 Thanks for your interest. Bug reports, ideas and patches are all welcome.
 
@@ -32,10 +32,11 @@ behind the main design decisions.
 - **If you change something that touches lore.kernel.org**, run the opt-in live check and
   say in the PR that you did:
   ```bash
-  ./gradlew testDebugUnitTest -Dlkml.live=true --tests '*LiveSmokeTest*'
+  ./gradlew testDebugUnitTest -Dkernelfeed.live=true --tests '*LiveSmokeTest*'
   ```
 - **Keep the licence header.** Every `.kt` file carries the GPL/commercial notice at the
-  top; new files need it too, and it must not be removed from existing ones.
+  top, and build/resource files carry a two-line `SPDX-License-Identifier: GPL-3.0-only`
+  tag. New files need the same; don't remove them from existing ones.
 - **Match the surrounding style.** In particular, comments here explain *why* a decision
   was made, especially where the obvious approach is wrong — see the notes on the
   User-Agent requirement and the aggregate-inbox lag. Keep that standard.

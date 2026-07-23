@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Luka Gejak
+  SPDX-License-Identifier: GPL-3.0-only
+-->
 <full-backup-content>
     <!-- The database is a rebuildable cache of a public archive; backing it up would
          waste the user's backup quota on data a single refresh restores. -->
-    <exclude domain="database" path="lkml.db" />
+    <exclude domain="database" path="kernelfeed.db" />
     <exclude domain="file" path="http" />
 </full-backup-content>

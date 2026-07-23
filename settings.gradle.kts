@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Luka Gejak
+// SPDX-License-Identifier: GPL-3.0-only
+
 pluginManagement {
     repositories {
         google {
@@ -20,5 +23,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "lkml-app"
+rootProject.name = "kernelfeed"
 include(":app")

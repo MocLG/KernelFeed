@@ -36,4 +36,4 @@
 # ---- App models ------------------------------------------------------------------
 # Entities are mapped by field name in generated Room code; renaming them breaks the
 # column bindings for the FTS shadow table in particular.
--keep class dev.lukag.lkml.data.local.entity.** { *; }
+-keep class dev.lukag.kernelfeed.data.local.entity.** { *; }

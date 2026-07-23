@@ -1,6 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Luka Gejak
+  SPDX-License-Identifier: GPL-3.0-only
+-->
 <resources>
     <!-- Compose owns all app styling; this exists only to give the window a
          Material 3 base and avoid an action bar before Compose takes over. -->
-    <style name="Theme.Lkml" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.KernelFeed" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Luka Gejak
+  SPDX-License-Identifier: GPL-3.0-only
+-->
 <data-extraction-rules>
     <cloud-backup>
-        <exclude domain="database" path="lkml.db" />
+        <exclude domain="database" path="kernelfeed.db" />
         <exclude domain="file" path="http" />
     </cloud-backup>
     <device-transfer>
-        <exclude domain="database" path="lkml.db" />
+        <exclude domain="database" path="kernelfeed.db" />
         <exclude domain="file" path="http" />
     </device-transfer>
 </data-extraction-rules>

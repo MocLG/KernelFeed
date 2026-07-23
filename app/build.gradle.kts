@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 Luka Gejak
+// SPDX-License-Identifier: GPL-3.0-only
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -8,11 +11,11 @@ plugins {
 }
 
 android {
-    namespace = "dev.lukag.lkml"
+    namespace = "dev.lukag.kernelfeed"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "dev.lukag.lkml"
+        applicationId = "dev.lukag.kernelfeed"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
@@ -63,9 +66,9 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.all {
-            // Forwards -Dlkml.live=true to the test JVM so the opt-in live smoke test
+            // Forwards -Dkernelfeed.live=true to the test JVM so the opt-in live smoke test
             // against lore.kernel.org can be enabled from the command line.
-            it.systemProperty("lkml.live", System.getProperty("lkml.live") ?: "false")
+            it.systemProperty("kernelfeed.live", System.getProperty("kernelfeed.live") ?: "false")
         }
     }
 }

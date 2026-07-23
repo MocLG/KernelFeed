@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-FileCopyrightText: 2026 Luka Gejak
+  SPDX-License-Identifier: GPL-3.0-only
+-->
 <resources>
     <color name="ic_launcher_background">#0B2545</color>
 </resources>

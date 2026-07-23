@@ -1,6 +1,6 @@
 # Licensing
 
-LKML is **dual-licensed**. You may use it under either:
+KernelFeed is **dual-licensed**. You may use it under either:
 
 1. the **GNU General Public License, version 3** (see [`LICENSE`](LICENSE)) — free of
    charge, with the obligations that licence imposes; or
@@ -83,3 +83,6 @@ This app reads the public mailing-list archives at
 [lore.kernel.org](https://lore.kernel.org/). Those messages are the work of their
 respective authors and are **not** covered by this project's licence. Nothing here grants
 any rights over archived mail, the Linux kernel, or its trademarks.
+
+*Linux* is a registered trademark of Linus Torvalds. KernelFeed is an independent project,
+not affiliated with or endorsed by the Linux Foundation or kernel.org.

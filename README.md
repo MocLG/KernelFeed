@@ -1,6 +1,6 @@
-# LKML
+# KernelFeed
 
-An Android reader for the Linux Kernel Mailing List, backed by the public-inbox archive at
+An Android reader for the Linux kernel mailing lists, backed by the public-inbox archives at
 [lore.kernel.org](https://lore.kernel.org/lkml/). Kotlin, Jetpack Compose, Material 3,
 offline-first.
 
@@ -52,7 +52,7 @@ disagree about who counts as a bot:
 |---|---|
 | contains `Mozilla` | Anubis JavaScript proof-of-work page, served as **`200 OK text/html`** |
 | `curl/...` | **`403`** from nginx |
-| `lkml-app/1.0 (Android; ...)` | served normally on every endpoint |
+| `kernelfeed/1.0 (Android; ...)` | served normally on every endpoint |
 
 The failure mode matters more than the rule. A browser-shaped UA does not get an error —
 it gets a *successful* response containing an interstitial, which then fails deep inside
@@ -271,7 +271,7 @@ There is also an opt-in live smoke test that exercises the whole pipeline agains
 archive:
 
 ```bash
-./gradlew testDebugUnitTest -Dlkml.live=true --tests '*LiveSmokeTest*'
+./gradlew testDebugUnitTest -Dkernelfeed.live=true --tests '*LiveSmokeTest*'
 ```
 
 It is excluded by default: it depends on a third-party host being up, so a CI failure
@@ -313,3 +313,11 @@ Contributions are covered by a copyright-assignment agreement — see
 
 Archived mail read by this app belongs to its respective authors and is not covered by
 this licence.
+
+### Trademarks
+
+*Linux* is a registered trademark of Linus Torvalds. KernelFeed is an independent project
+and is **not** affiliated with, endorsed by, or sponsored by the Linux Foundation, the
+Linux kernel project, or kernel.org. References to the Linux kernel and to the mailing
+lists archived at lore.kernel.org are descriptive, identifying the material this reader
+displays.
