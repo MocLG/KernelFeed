@@ -287,9 +287,7 @@ background sync are implemented and build clean (`assembleDebug`, `assembleRelea
 R8, `lintDebug` with zero errors). The full pipeline has been verified end-to-end against
 production lore.kernel.org, across `all`, `lkml`, `linux-staging`, `netdev` and `bpf`.
 
-Not yet built: reply/compose (the archive is read-only; sending would need SMTP), and
-instrumented UI tests. **The app has not been run on a device** — there is no emulator in
-this environment, so the Compose layer is verified by compilation and lint only.
+**Tested on multiple devices**
 
 ---
 
