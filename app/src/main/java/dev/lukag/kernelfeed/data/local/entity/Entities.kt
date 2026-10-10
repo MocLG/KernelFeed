@@ -73,15 +73,20 @@ data class ThreadEntity(
  * `all` at once. A single `feedList` column would make those lists fight over the row,
  * with whichever refreshed last winning and the others losing the thread from their feed.
  *
- * [lastActivityEpochMillis] is duplicated here on purpose: it is the *per-list* ordering
- * key, which can differ from the thread's global last activity when a list only carried
- * part of a cross-posted discussion.
+ * Ordering is the *server's* order, not a timestamp sort. lore's topic index is not
+ * strictly newest-activity-first — a thread that collects a reply keeps the position the
+ * archive's index gives it — so ordering by [lastActivityEpochMillis] visibly shuffles
+ * rows against what lore.kernel.org shows. [pageIndex] and [positionInPage] record where
+ * the archive served each topic, reproducing the index exactly across pages.
+ *
+ * [lastActivityEpochMillis] is still carried here on purpose: it is what the row displays,
+ * and it stays correct even when the thread's global last activity moves on.
  */
 @Entity(
     tableName = "feed_entries",
     primaryKeys = ["listSlug", "rootMessageId"],
     indices = [
-        Index("listSlug", "lastActivityEpochMillis"),
+        Index("listSlug", "pageIndex", "positionInPage"),
         Index("rootMessageId"),
     ],
     foreignKeys = [
@@ -97,6 +102,10 @@ data class FeedEntryEntity(
     val listSlug: String,
     val rootMessageId: String,
     val lastActivityEpochMillis: Long,
+    /** Which topic-index page the thread was served in; 0 is the first page. */
+    val pageIndex: Int = 0,
+    /** The thread's position within that page, so server order survives the round trip. */
+    val positionInPage: Int = 0,
 )
 
 /** A mailing list from `manifest.js.gz`, plus the user's pin state. */

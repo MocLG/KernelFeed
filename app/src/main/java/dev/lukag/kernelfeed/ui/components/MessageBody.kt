@@ -42,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -106,31 +105,25 @@ private fun ProseBlock(text: String) {
 }
 
 /**
- * Quoted text, collapsed by default beyond a few lines.
+ * Quoted text, always shown in full.
  *
- * Deep quoting is the dominant source of noise in mailing-list threads; showing a
- * two-line preview with a tap to expand keeps the actual reply visible without
- * discarding the context it answers.
+ * The quoted material is not truncated behind a tap: on kernel lists what a reply quotes
+ * is usually the thing being answered — a hunk of patch, a register dump, a traceback —
+ * and hiding it makes the reply impossible to follow in context. The depth-tinted accent
+ * bar keeps the quote/answer boundary readable instead, and the text is monospaced and
+ * unwrapped like prose so the original alignment survives.
  */
 @Composable
 private fun QuoteBlock(block: BodyBlock.Quote) {
     val colors = LocalCodeColors.current
     val accent = colors.quoteAccents[(block.depth - 1).coerceAtLeast(0) % colors.quoteAccents.size]
-    val lines = remember(block.text) { block.text.lines() }
-    val isLong = lines.size > COLLAPSE_THRESHOLD
-    var expanded by rememberSaveable(block.text.hashCode()) { mutableStateOf(!isLong) }
-
-    val shown = remember(lines, expanded) {
-        if (expanded) block.text else lines.take(PREVIEW_LINES).joinToString("\n")
-    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             // IntrinsicSize.Min lets the accent bar match the text's height exactly,
-            // however many lines are currently shown, without measuring it by hand.
-            .height(IntrinsicSize.Min)
-            .clickable(enabled = isLong) { expanded = !expanded },
+            // however many lines there are, without measuring it by hand.
+            .height(IntrinsicSize.Min),
     ) {
         Box(
             Modifier
@@ -138,24 +131,14 @@ private fun QuoteBlock(block: BodyBlock.Quote) {
                 .fillMaxHeight()
                 .background(accent, RoundedCornerShape(2.dp)),
         )
-        Column(Modifier.padding(start = 8.dp)) {
-            val scroll = rememberScrollState()
-            Box(Modifier.fillMaxWidth().horizontalScroll(scroll)) {
-                Text(
-                    text = shown,
-                    style = CodeTypography.quote,
-                    color = colors.quoteFg,
-                    softWrap = false,
-                )
-            }
-            if (isLong) {
-                Text(
-                    text = if (expanded) "Hide quote" else "… ${lines.size - PREVIEW_LINES} more quoted lines",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = accent,
-                    modifier = Modifier.padding(top = 2.dp),
-                )
-            }
+        val scroll = rememberScrollState()
+        Box(Modifier.padding(start = 8.dp).fillMaxWidth().horizontalScroll(scroll)) {
+            Text(
+                text = block.text,
+                style = CodeTypography.quote,
+                color = colors.quoteFg,
+                softWrap = false,
+            )
         }
     }
 }
@@ -229,5 +212,3 @@ private fun CommitMetaBlock(block: BodyBlock.CommitMeta) {
     }
 }
 
-private const val COLLAPSE_THRESHOLD = 6
-private const val PREVIEW_LINES = 2

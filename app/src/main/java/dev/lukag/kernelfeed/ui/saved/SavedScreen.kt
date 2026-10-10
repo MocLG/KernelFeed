@@ -42,6 +42,7 @@ import dev.lukag.kernelfeed.domain.model.ThreadSummary
 import dev.lukag.kernelfeed.domain.repository.ThreadRepository
 import dev.lukag.kernelfeed.ui.components.EmptyState
 import dev.lukag.kernelfeed.ui.components.ThreadRow
+import dev.lukag.kernelfeed.ui.util.rememberNow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -83,6 +84,7 @@ fun SavedScreen(
     viewModel: SavedViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val now = rememberNow()
 
     if (state.threads.isEmpty()) {
         EmptyState(
@@ -108,6 +110,7 @@ fun SavedScreen(
             ) { thread ->
                 ThreadRow(
                     thread = thread,
+                    now = now,
                     onClick = { onOpenThread(thread.rootMessageId) },
                     onToggleSaved = { viewModel.unsave(thread) },
                 )

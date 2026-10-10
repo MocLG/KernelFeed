@@ -43,9 +43,11 @@ import dev.lukag.kernelfeed.data.local.entity.ThreadEntity
         MailingListEntity::class,
     ],
     // v2 introduced per-list feeds (feed_entries, mailing_lists, list-keyed feed_pages).
+    // v3 stores each feed row's position in the archive's topic index, so the feed can be
+    // shown in the same order lore.kernel.org serves it.
     // No migration is supplied: the database is a cache of a public archive, so the
     // destructive fallback costs the user a refresh and nothing else.
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

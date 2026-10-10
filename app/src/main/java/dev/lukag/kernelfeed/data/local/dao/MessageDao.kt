@@ -78,6 +78,28 @@ interface MessageDao {
     )
     suspend fun searchOffline(query: String, limit: Int = 100): List<MessageEntity>
 
+    /**
+     * Offline search restricted to one list's threads.
+     *
+     * A cached thread counts as belonging to a list if it was discovered there *or* it is
+     * on that list's feed: the same patch is often read first through the aggregate inbox,
+     * and a list-scoped search should still find material the user has already opened.
+     */
+    @Query(
+        """
+        SELECT m.* FROM messages AS m
+        JOIN messages_fts AS f ON f.docid = m.rowid
+        JOIN threads AS t ON t.rootMessageId = m.threadRootId
+        WHERE messages_fts MATCH :query
+          AND (t.sourceList = :listSlug OR EXISTS (
+                SELECT 1 FROM feed_entries AS fe
+                 WHERE fe.rootMessageId = t.rootMessageId AND fe.listSlug = :listSlug))
+        ORDER BY m.dateEpochMillis DESC
+        LIMIT :limit
+        """,
+    )
+    suspend fun searchOfflineInList(query: String, listSlug: String, limit: Int = 100): List<MessageEntity>
+
     @Query("SELECT SUM(LENGTH(body)) FROM messages")
     fun observeCachedBytes(): Flow<Long?>
 }

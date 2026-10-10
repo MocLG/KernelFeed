@@ -22,6 +22,7 @@ package dev.lukag.kernelfeed.domain.repository
 
 import dev.lukag.kernelfeed.core.Resource
 import dev.lukag.kernelfeed.domain.model.MailingList
+import dev.lukag.kernelfeed.domain.model.MailingLists
 import dev.lukag.kernelfeed.domain.model.Message
 import dev.lukag.kernelfeed.domain.model.ThreadSummary
 import kotlinx.coroutines.flow.Flow
@@ -85,10 +86,27 @@ interface ThreadRepository {
 
     // ---- Search ----------------------------------------------------------------------
 
-    suspend fun searchRemote(query: String, offset: Int): Resource<SearchOutcome>
+    /**
+     * Searches the archive.
+     *
+     * [listSlug] scopes the query to one mailing list — lore's own search endpoint takes
+     * the list as part of its path — with [MailingLists.AGGREGATE] searching every list at
+     * once. Hits are filed against the list they were found in, so opening one fetches its
+     * mbox from the archive that actually carries it.
+     */
+    suspend fun searchRemote(
+        query: String,
+        offset: Int,
+        listSlug: String = MailingLists.AGGREGATE,
+    ): Resource<SearchOutcome>
 
-    /** Full-text search over cached bodies; works with no connectivity. */
-    suspend fun searchLocal(query: String): Resource<List<Message>>
+    /**
+     * Full-text search over cached bodies; works with no connectivity.
+     *
+     * [listSlug] restricts the results to one list, matching threads that were discovered
+     * there or that are on its feed. Null searches everything cached.
+     */
+    suspend fun searchLocal(query: String, listSlug: String? = null): Resource<List<Message>>
 
     // ---- Maintenance -----------------------------------------------------------------
 

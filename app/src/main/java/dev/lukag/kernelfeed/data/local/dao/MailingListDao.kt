@@ -32,15 +32,18 @@ import kotlinx.coroutines.flow.Flow
 interface MailingListDao {
 
     /**
-     * Catalogue order: pinned first, then curated, then by recent activity.
+     * Catalogue order: pinned first, then most recently active.
      *
-     * Alphabetical order would bury the dozen lists people actually open under ~340
-     * narrow subsystem and CI archives.
+     * This is the order lore.kernel.org's own index lists its archives in, so the first
+     * screen matches the site. Alphabetical order would instead bury the dozen lists
+     * people actually open under ~340 narrow subsystem and CI archives; `slug ASC` only
+     * breaks ties between lists whose activity timestamps are equal, which is common
+     * because the manifest reports whole seconds.
      */
     @Query(
         """
         SELECT * FROM mailing_lists
-        ORDER BY isPinned DESC, isFeatured DESC, lastActivityEpochMillis DESC, slug ASC
+        ORDER BY isPinned DESC, lastActivityEpochMillis DESC, slug ASC
         """,
     )
     fun observeAll(): Flow<List<MailingListEntity>>
@@ -62,7 +65,7 @@ interface MailingListDao {
             CASE WHEN slug = :query THEN 0
                  WHEN slug LIKE :query || '%' THEN 1
                  ELSE 2 END,
-            isPinned DESC, isFeatured DESC, lastActivityEpochMillis DESC
+            isPinned DESC, lastActivityEpochMillis DESC
         LIMIT 100
         """,
     )

@@ -34,7 +34,12 @@ import kotlinx.coroutines.flow.Flow
 interface ThreadDao {
 
     /**
-     * One list's feed, ordered by that list's own activity timestamps.
+     * One list's feed, in the order lore.kernel.org served it.
+     *
+     * Ordered by the position each topic held in the archive's index rather than by
+     * timestamp: lore's index is not strictly newest-first, so a timestamp sort would
+     * reshuffle rows the user just saw on the site. Pages are appended in fetch order, so
+     * `pageIndex` preserves that too.
      *
      * The join is what makes a thread able to sit in several lists' feeds at once
      * without them overwriting each other.
@@ -44,7 +49,7 @@ interface ThreadDao {
         SELECT t.* FROM threads AS t
         JOIN feed_entries AS f ON f.rootMessageId = t.rootMessageId
         WHERE f.listSlug = :listSlug
-        ORDER BY f.lastActivityEpochMillis DESC
+        ORDER BY f.pageIndex ASC, f.positionInPage ASC
         """,
     )
     fun observeFeed(listSlug: String): Flow<List<ThreadEntity>>
@@ -76,7 +81,7 @@ interface ThreadDao {
      * strictly separate.
      */
     @Transaction
-    suspend fun upsertFeed(listSlug: String, threads: List<ThreadEntity>) {
+    suspend fun upsertFeed(listSlug: String, pageIndex: Int, threads: List<ThreadEntity>) {
         val inserted = insertIgnoring(threads)
         threads.forEachIndexed { index, thread ->
             if (inserted[index] == -1L) {
@@ -90,8 +95,14 @@ interface ThreadDao {
             }
         }
         insertFeedEntries(
-            threads.map {
-                FeedEntryEntity(listSlug, it.rootMessageId, it.lastActivityEpochMillis)
+            threads.mapIndexed { position, thread ->
+                FeedEntryEntity(
+                    listSlug = listSlug,
+                    rootMessageId = thread.rootMessageId,
+                    lastActivityEpochMillis = thread.lastActivityEpochMillis,
+                    pageIndex = pageIndex,
+                    positionInPage = position,
+                )
             },
         )
     }

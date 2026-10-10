@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -59,6 +60,7 @@ import dev.lukag.kernelfeed.ui.components.ErrorBanner
 import dev.lukag.kernelfeed.ui.components.ErrorState
 import dev.lukag.kernelfeed.ui.components.OfflineBanner
 import dev.lukag.kernelfeed.ui.components.ThreadRow
+import dev.lukag.kernelfeed.ui.util.rememberNow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 
@@ -67,11 +69,14 @@ import kotlinx.coroutines.flow.filter
 fun FeedScreen(
     onBack: () -> Unit,
     onOpenThread: (ThreadSummary) -> Unit,
+    onSearchInList: (String) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: FeedViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    // Keeps the "5 min" labels on the rows honest while the screen stays open.
+    val now = rememberNow()
 
     /**
      * Prefetch trigger.
@@ -125,11 +130,26 @@ fun FeedScreen(
                         }
                     }
                 },
+                actions = {
+                    // Search is scoped to this list: the reader is already in a subsystem,
+                    // and lore's per-list index answers far more precisely than the
+                    // aggregate one for anything posted here.
+                    IconButton(
+                        onClick = { onSearchInList(state.listSlug) },
+                        enabled = state.listSlug.isNotBlank(),
+                    ) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = "Search ${state.listSlug}",
+                        )
+                    }
+                },
             )
         },
     ) { padding ->
         FeedContent(
             state = state,
+            now = now,
             listState = listState,
             onRefresh = viewModel::refresh,
             onOpenThread = onOpenThread,
@@ -144,6 +164,7 @@ fun FeedScreen(
 @Composable
 private fun FeedContent(
     state: FeedUiState,
+    now: Long,
     listState: androidx.compose.foundation.lazy.LazyListState,
     onRefresh: () -> Unit,
     onOpenThread: (ThreadSummary) -> Unit,
@@ -186,6 +207,7 @@ private fun FeedContent(
                     ) { thread ->
                         ThreadRow(
                             thread = thread,
+                            now = now,
                             onClick = { onOpenThread(thread) },
                             onToggleSaved = { onToggleSaved(thread) },
                         )

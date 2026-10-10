@@ -64,13 +64,14 @@ import dev.lukag.kernelfeed.ui.components.ErrorBanner
 import dev.lukag.kernelfeed.ui.components.ErrorState
 import dev.lukag.kernelfeed.ui.components.OfflineBanner
 import dev.lukag.kernelfeed.ui.util.formatRelative
+import dev.lukag.kernelfeed.ui.util.rememberNow
 
 /**
  * The catalogue of archived mailing lists — the app's entry point.
  *
- * lore hosts ~350 lists, most of them narrow subsystem or CI archives. Showing them
- * alphabetically would bury the dozen anyone actually opens, so the screen is ordered
- * pinned → featured → most recently active, with search covering the long tail.
+ * lore hosts ~350 lists, most of them narrow subsystem or CI archives. The screen shows
+ * them in the same order lore.kernel.org's own index does — most recently active first —
+ * with the user's pinned lists floated above that, and search covering the long tail.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,6 +81,7 @@ fun ListCatalogScreen(
     viewModel: ListCatalogViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val now = rememberNow()
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
@@ -133,27 +135,27 @@ fun ListCatalogScreen(
                 )
 
                 else -> LazyColumn(Modifier.fillMaxSize()) {
+                    // Pinned lists float above the rest; everything else stays exactly in
+                    // the order lore.kernel.org serves its index, so the screen matches
+                    // the site. A header only appears when there is something above it to
+                    // separate from, or when the results are a search.
                     if (state.pinned.isNotEmpty()) {
                         item(key = "hdr-pinned") { SectionHeader("Pinned") }
-                        listSection(state.pinned, "pin", onOpenList, viewModel::togglePinned)
-                    }
-                    if (state.featured.isNotEmpty()) {
-                        item(key = "hdr-featured") {
-                            SectionHeader(if (state.isSearching) "Popular" else "Popular lists")
-                        }
-                        listSection(state.featured, "feat", onOpenList, viewModel::togglePinned)
+                        listSection(state.pinned, "pin", now, onOpenList, viewModel::togglePinned)
                     }
                     if (state.others.isNotEmpty()) {
-                        item(key = "hdr-others") {
-                            SectionHeader(
-                                if (state.isSearching) {
-                                    "Other matches (${state.others.size})"
-                                } else {
-                                    "All archives (${state.others.size})"
-                                },
-                            )
+                        if (state.isSearching || state.pinned.isNotEmpty()) {
+                            item(key = "hdr-others") {
+                                SectionHeader(
+                                    if (state.isSearching) {
+                                        "Matches (${state.others.size})"
+                                    } else {
+                                        "All lists (${state.others.size})"
+                                    },
+                                )
+                            }
                         }
-                        listSection(state.others, "all", onOpenList, viewModel::togglePinned)
+                        listSection(state.others, "all", now, onOpenList, viewModel::togglePinned)
                     }
                 }
             }
@@ -164,6 +166,7 @@ fun ListCatalogScreen(
 private fun androidx.compose.foundation.lazy.LazyListScope.listSection(
     lists: List<MailingList>,
     keyPrefix: String,
+    now: Long,
     onOpenList: (MailingList) -> Unit,
     onTogglePin: (MailingList) -> Unit,
 ) {
@@ -175,6 +178,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listSection(
     ) { list ->
         MailingListRow(
             list = list,
+            now = now,
             onClick = { onOpenList(list) },
             onTogglePin = { onTogglePin(list) },
         )
@@ -188,6 +192,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.listSection(
 @Composable
 private fun MailingListRow(
     list: MailingList,
+    now: Long,
     onClick: () -> Unit,
     onTogglePin: () -> Unit,
 ) {
@@ -237,7 +242,7 @@ private fun MailingListRow(
             // The aggregate carries a sentinel timestamp rather than a real one.
             if (!isAggregate && list.lastActivityEpochMillis > 0) {
                 Text(
-                    text = "active ${formatRelative(list.lastActivityEpochMillis)}",
+                    text = "active ${formatRelative(list.lastActivityEpochMillis, now)}",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 2.dp),

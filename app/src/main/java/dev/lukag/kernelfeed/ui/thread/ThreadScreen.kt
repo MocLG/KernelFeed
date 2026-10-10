@@ -62,6 +62,7 @@ import dev.lukag.kernelfeed.ui.components.EmptyState
 import dev.lukag.kernelfeed.ui.components.ErrorBanner
 import dev.lukag.kernelfeed.ui.components.ErrorState
 import dev.lukag.kernelfeed.ui.components.OfflineBanner
+import dev.lukag.kernelfeed.ui.util.rememberNow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -73,6 +74,7 @@ fun ThreadScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val now = rememberNow()
     val appBarState = rememberTopAppBarState()
     val scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(appBarState)
 
@@ -195,7 +197,7 @@ fun ThreadScreen(
                     items(
                         items = state.flattened,
                         // Message-ID keys let Compose preserve each card's internal state
-                        // (expanded diffs, quote toggles) across collapse and reflow.
+                        // (expanded body, signature toggle) across collapse and reflow.
                         key = { it.message.messageId },
                         contentType = { "message" },
                     ) { item ->
@@ -203,6 +205,7 @@ fun ThreadScreen(
                             item = item,
                             isExpanded = item.message.messageId in state.expanded,
                             blocks = state.bodies[item.message.messageId],
+                            now = now,
                             onToggleExpanded = { viewModel.toggleExpanded(item.message.messageId) },
                             onToggleCollapsed = { viewModel.toggleCollapsed(item.message.messageId) },
                             onJumpToParent = { viewModel.jumpToParent(item.message.messageId) },

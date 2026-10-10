@@ -43,14 +43,13 @@ import javax.inject.Inject
 data class ListCatalogUiState(
     val query: String = "",
     val pinned: List<MailingList> = emptyList(),
-    val featured: List<MailingList> = emptyList(),
     val others: List<MailingList> = emptyList(),
     val isRefreshing: Boolean = false,
     val isOffline: Boolean = false,
     val error: AppError? = null,
 ) {
     val isSearching: Boolean get() = query.isNotBlank()
-    val total: Int get() = pinned.size + featured.size + others.size
+    val total: Int get() = pinned.size + others.size
     val isEmpty: Boolean get() = total == 0 && !isRefreshing
 }
 
@@ -85,16 +84,16 @@ class ListCatalogViewModel @Inject constructor(
         local,
         networkMonitor.isOnline,
     ) { lists, q, localState, online ->
-        // Sections are derived here rather than with three queries: one pass over an
-        // already-ordered list is cheaper than three round trips to SQLite.
+        // Split with one pass over the already-ordered list rather than with extra
+        // queries. Row order is left exactly as the database returned it — the order
+        // lore.kernel.org lists its archives in — with only the user's pinned lists
+        // floated to the top.
         val pinned = lists.filter { it.isPinned }
-        val featured = lists.filter { !it.isPinned && it.isFeatured }
-        val others = lists.filter { !it.isPinned && !it.isFeatured }
+        val others = lists.filter { !it.isPinned }
 
         ListCatalogUiState(
             query = q,
             pinned = pinned,
-            featured = featured,
             others = others,
             isRefreshing = localState.isRefreshing,
             isOffline = !online,

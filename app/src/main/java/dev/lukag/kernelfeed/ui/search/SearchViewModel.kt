@@ -20,12 +20,14 @@
 
 package dev.lukag.kernelfeed.ui.search
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dev.lukag.kernelfeed.core.AppError
 import dev.lukag.kernelfeed.core.NetworkMonitor
 import dev.lukag.kernelfeed.core.Resource
+import dev.lukag.kernelfeed.domain.model.MailingLists
 import dev.lukag.kernelfeed.domain.model.Message
 import dev.lukag.kernelfeed.domain.model.ThreadSummary
 import dev.lukag.kernelfeed.domain.repository.ThreadRepository
@@ -40,6 +42,8 @@ import javax.inject.Inject
 
 data class SearchUiState(
     val query: String = "",
+    /** The list this search is confined to, or null when searching every archive. */
+    val listSlug: String? = null,
     val remoteResults: List<ThreadSummary> = emptyList(),
     val localResults: List<Message> = emptyList(),
     val isSearching: Boolean = false,
@@ -54,11 +58,20 @@ data class SearchUiState(
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
+    savedStateHandle: SavedStateHandle,
     private val repository: ThreadRepository,
     private val networkMonitor: NetworkMonitor,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(SearchUiState())
+    /**
+     * The list to search, when the screen was opened from one.
+     *
+     * Absent on the global search tab's route, which searches the aggregate inbox; the
+     * route argument exists only on the in-list route.
+     */
+    private val listSlug: String? = savedStateHandle.get<String>("listSlug")
+
+    private val _state = MutableStateFlow(SearchUiState(listSlug = listSlug))
     val state: StateFlow<SearchUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
@@ -108,11 +121,12 @@ class SearchViewModel @Inject constructor(
             it.copy(isSearching = !append, error = null, hasSearched = true, isOffline = !networkMonitor.currentlyOnline())
         }
 
-        (repository.searchLocal(query) as? Resource.Success)?.let { local ->
+        (repository.searchLocal(query, listSlug) as? Resource.Success)?.let { local ->
             _state.update { it.copy(localResults = local.data) }
         }
 
-        when (val remote = repository.searchRemote(query, offset)) {
+        val scope = listSlug ?: MailingLists.AGGREGATE
+        when (val remote = repository.searchRemote(query, offset, scope)) {
             is Resource.Success -> _state.update {
                 it.copy(
                     remoteResults = if (append) it.remoteResults + remote.data.results else remote.data.results,

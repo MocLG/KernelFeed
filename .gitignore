@@ -9,6 +9,7 @@ captures/
 .cxx
 local.properties
 *.hprof
+.kotlin/
 
 # Room exports schema JSON; keep it (it documents migrations) but ignore build noise.
 app/release/

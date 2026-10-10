@@ -61,6 +61,21 @@ class LoreParsingTest {
         assertTrue(page.topics.none { "&#" in it.subject || "&amp;" in it.subject })
     }
 
+    /**
+     * The index prints its activity line in UTC (` 2026-07-23  9:21 UTC`), so the parsed
+     * instant has to be exactly that moment. Parsing it as local time would shift every
+     * row by the device's offset — which is what makes relative labels read wrong.
+     */
+    @Test
+    fun `topic timestamps are the archive's UTC instant`() {
+        val first = LoreHtmlParsers.parseTopicIndex(text("topic_index.html")).topics.first()
+
+        assertEquals(
+            1784798460000L,
+            first.lastActivityEpochMillis,
+        )
+    }
+
     @Test
     fun `parses live search results with authors and paging`() {
         val page = LoreHtmlParsers.parseSearchResults(text("search_results.html"), currentOffset = 0)

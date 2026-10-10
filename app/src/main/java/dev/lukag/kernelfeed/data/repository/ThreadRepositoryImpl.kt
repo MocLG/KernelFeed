@@ -125,9 +125,12 @@ class ThreadRepositoryImpl @Inject constructor(
         db.withTransaction {
             threadDao.clearFeed(listSlug)
             threadDao.clearPages(listSlug)
+            // Page 0 is re-inserted from scratch, so the feed starts again in the exact
+            // order the archive serves it rather than accumulating stale positions.
             threadDao.upsertFeed(
-                listSlug,
-                page.topics.map { it.copy(sourceList = listSlug).toEntity() },
+                listSlug = listSlug,
+                pageIndex = 0,
+                threads = page.topics.map { it.copy(sourceList = listSlug).toEntity() },
             )
             threadDao.upsertPage(
                 FeedPageEntity(listSlug, 0, null, page.nextCursor, System.currentTimeMillis()),
@@ -142,14 +145,16 @@ class ThreadRepositoryImpl @Inject constructor(
         if (last != null && cursor == null) return@ioResult false // Archive exhausted.
 
         val page = fetchTopicPage(listSlug, cursor)
+        val pageIndex = (last?.pageIndex ?: -1) + 1
         threadDao.upsertFeed(
-            listSlug,
-            page.topics.map { it.copy(sourceList = listSlug).toEntity() },
+            listSlug = listSlug,
+            pageIndex = pageIndex,
+            threads = page.topics.map { it.copy(sourceList = listSlug).toEntity() },
         )
         threadDao.upsertPage(
             FeedPageEntity(
                 listSlug = listSlug,
-                pageIndex = (last?.pageIndex ?: -1) + 1,
+                pageIndex = pageIndex,
                 cursor = cursor,
                 nextCursor = page.nextCursor,
                 fetchedAtEpochMillis = System.currentTimeMillis(),
@@ -262,23 +267,38 @@ class ThreadRepositoryImpl @Inject constructor(
 
     // ---- Search ----------------------------------------------------------------------
 
-    override suspend fun searchRemote(query: String, offset: Int): Resource<SearchOutcome> =
+    override suspend fun searchRemote(
+        query: String,
+        offset: Int,
+        listSlug: String,
+    ): Resource<SearchOutcome> =
         ioResult {
-            val html = readHtml(LoreUrls.search(MailingLists.AGGREGATE, query, offset))
+            val html = readHtml(LoreUrls.search(listSlug, query, offset))
             val page = LoreHtmlParsers.parseSearchResults(html, offset)
             // Search hits are recorded as bare thread rows with no feed membership, so
             // tapping one has a row to attach messages to without leaking into any feed.
+            // They are stamped with the list they were searched in, which is where their
+            // mbox is fetched from — searching one list must not imply the aggregate.
             threadDao.insertIgnoring(
-                page.results.map { it.copy(sourceList = MailingLists.ALL).toEntity() },
+                page.results.map { it.copy(sourceList = listSlug).toEntity() },
             )
             SearchOutcome(page.results, page.nextOffset)
         }
 
-    override suspend fun searchLocal(query: String): Resource<List<Message>> = ioResult {
-        val sanitised = toFtsQuery(query)
-        if (sanitised.isBlank()) emptyList()
-        else messageDao.searchOffline(sanitised).map { it.toDomain() }
-    }
+    override suspend fun searchLocal(query: String, listSlug: String?): Resource<List<Message>> =
+        ioResult {
+            val sanitised = toFtsQuery(query)
+            if (sanitised.isBlank()) {
+                emptyList()
+            } else {
+                val rows = if (listSlug == null) {
+                    messageDao.searchOffline(sanitised)
+                } else {
+                    messageDao.searchOfflineInList(sanitised, listSlug)
+                }
+                rows.map { it.toDomain() }
+            }
+        }
 
     /**
      * FTS4 `MATCH` treats `-`, `"`, `*`, `:` and friends as operators, and kernel searches

@@ -58,6 +58,8 @@ import dev.lukag.kernelfeed.ui.util.formatRelative
 @Composable
 fun ThreadRow(
     thread: ThreadSummary,
+    /** The current time, supplied by the screen so the label stays fresh; see `rememberNow`. */
+    now: Long,
     onClick: () -> Unit,
     onToggleSaved: () -> Unit,
     modifier: Modifier = Modifier,
@@ -101,7 +103,7 @@ fun ThreadRow(
                 modifier = Modifier.padding(top = 4.dp),
             ) {
                 Text(
-                    text = formatRelative(thread.lastActivityEpochMillis),
+                    text = formatRelative(thread.lastActivityEpochMillis, now),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

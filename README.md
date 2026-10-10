@@ -94,9 +94,18 @@ Search ────────────────────────�
 Saved  ────────────────────────────↗
 ```
 
-The catalogue is ordered pinned → curated → most recently active, with search over all
-353 lists. Ordering alphabetically would bury the dozen lists anyone actually opens under
-~340 narrow subsystem and CI archives.
+The catalogue is ordered the way lore.kernel.org orders its own index — most recently
+active first, the aggregate `all` inbox at the top — with the user's pinned lists floated
+above that. Ordering alphabetically would instead bury the dozen lists anyone actually
+opens under ~340 narrow subsystem and CI archives. Search covers all 353 lists, and a feed
+carries a search action that confines the same query to the list being read.
+
+A feed is stored and shown in the order the archive served it, never re-sorted by
+timestamp. lore's topic index is *not* strictly newest-activity-first — a thread that
+collects a late reply keeps the position the index gives it — so ordering by
+`lastActivityEpochMillis` visibly shuffles rows against what the site shows. Each
+`feed_entries` row therefore records the page it arrived on and its position in it, and
+pages are appended in fetch order.
 
 Feed membership is a **join table** (`feed_entries`), not a column on the thread. The same
 thread genuinely appears in several lists at once — a networking patch is on `netdev`,
@@ -231,8 +240,11 @@ Other UI decisions worth naming:
   numerically so the deepest replies stay readable.
 - Collapsing a subtree *removes* its descendants from the flattened list rather than
   hiding them, so collapsing 300 replies actually removes 300 items.
-- `LazyColumn` keys are Message-IDs, so each card's internal state (expanded diffs, quote
-  toggles) survives collapse and reflow.
+- Quotes are shown in full. What a reply quotes is usually the thing being answered — a
+  patch hunk, a register dump, a traceback — so truncating it behind a tap makes the reply
+  unreadable; the depth-tinted accent bar carries the quote/answer boundary instead.
+- `LazyColumn` keys are Message-IDs, so each card's internal state (expanded body,
+  signature toggle) survives collapse and reflow.
 
 ---
 
@@ -261,11 +273,13 @@ serialisable against it.
 
 ### Tests
 
-36 unit tests, run against **real captured responses** from lore.kernel.org
-(`app/src/test/resources/`) rather than synthetic fixtures — hand-written samples tend to
-encode the parser's own assumptions, while production data carries the details that
-actually break parsers: public-inbox's line-broken `href` attributes, mboxrd escaping,
-DKIM headers longer than most parsers' default limits.
+40 unit tests. The parser, manifest and tree suites run against **real captured responses**
+from lore.kernel.org (`app/src/test/resources/`) rather than synthetic fixtures —
+hand-written samples tend to encode the parser's own assumptions, while production data
+carries the details that actually break parsers: public-inbox's line-broken `href`
+attributes, mboxrd escaping, DKIM headers longer than most parsers' default limits. The
+time-formatting suite pins the label a row shows for a given age, and that a topic's
+activity line is read as the UTC instant the archive printed.
 
 There is also an opt-in live smoke test that exercises the whole pipeline against the real
 archive:

@@ -76,6 +76,8 @@ fun MessageCard(
     item: FlatMessage,
     isExpanded: Boolean,
     blocks: List<BodyBlock>?,
+    /** The current time, supplied by the screen so the timestamps stay fresh. */
+    now: Long,
     onToggleExpanded: () -> Unit,
     onToggleCollapsed: () -> Unit,
     onJumpToParent: () -> Unit,
@@ -114,6 +116,7 @@ fun MessageCard(
             MessageHeader(
                 item = item,
                 isExpanded = isExpanded,
+                now = now,
                 onToggleExpanded = onToggleExpanded,
                 onToggleCollapsed = onToggleCollapsed,
                 onJumpToParent = onJumpToParent,
@@ -144,6 +147,7 @@ fun MessageCard(
 private fun MessageHeader(
     item: FlatMessage,
     isExpanded: Boolean,
+    now: Long,
     onToggleExpanded: () -> Unit,
     onToggleCollapsed: () -> Unit,
     onJumpToParent: () -> Unit,
@@ -171,7 +175,7 @@ private fun MessageHeader(
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Text(
-                    text = formatRelative(message.dateEpochMillis),
+                    text = formatRelative(message.dateEpochMillis, now),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -63,6 +63,7 @@ private object Routes {
     const val SAVED = "saved"
     const val FEED = "feed/{listSlug}"
     const val THREAD = "thread/{rootMessageId}"
+    const val SEARCH_IN_LIST = "search/{listSlug}"
 
     /**
      * List slugs go into the route verbatim.
@@ -74,6 +75,8 @@ private object Routes {
     fun feed(listSlug: String) = "feed/$listSlug"
 
     fun thread(rootMessageId: String) = "thread/${MessageIdRoute.encode(rootMessageId)}"
+
+    fun searchInList(listSlug: String) = "search/$listSlug"
 }
 
 /**
@@ -183,11 +186,25 @@ fun KernelFeedApp(navController: NavHostController = rememberNavController()) {
                 FeedScreen(
                     onBack = { navController.popBackStack() },
                     onOpenThread = { navController.navigate(Routes.thread(it.rootMessageId)) },
+                    onSearchInList = { navController.navigate(Routes.searchInList(it)) },
                 )
             }
             composable(Routes.SEARCH) {
                 SearchScreen(
                     onOpenThread = { navController.navigate(Routes.thread(it)) },
+                )
+            }
+            composable(
+                route = Routes.SEARCH_IN_LIST,
+                arguments = listOf(navArgument("listSlug") { type = NavType.StringType }),
+            ) {
+                // Scoped search: `SearchViewModel` reads `listSlug` from this route and
+                // confines both the archive query and the offline query to that list. It
+                // is deliberately not a top-level destination — it is a detour from a
+                // feed, so it keeps a back arrow instead of the bottom bar.
+                SearchScreen(
+                    onOpenThread = { navController.navigate(Routes.thread(it)) },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable(Routes.SAVED) {

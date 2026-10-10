@@ -33,20 +33,25 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.OfflineBolt
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -57,21 +62,68 @@ import dev.lukag.kernelfeed.ui.components.ErrorBanner
 import dev.lukag.kernelfeed.ui.components.OfflineBanner
 import dev.lukag.kernelfeed.ui.components.ThreadRow
 import dev.lukag.kernelfeed.ui.util.formatRelative
+import dev.lukag.kernelfeed.ui.util.rememberNow
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
     onOpenThread: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onBack: (() -> Unit)? = null,
     viewModel: SearchViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val now = rememberNow()
+
+    // Opened from inside a mailing list, the screen brings its own app bar so the scope it
+    // searches is visible and there is a way back to the list. The global search tab is a
+    // top-level destination and uses the app's bar instead.
+    if (onBack == null) {
+        SearchContent(state, viewModel, onOpenThread, now, modifier)
+    } else {
+        Scaffold(
+            modifier = modifier,
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back to ${state.listSlug.orEmpty()}",
+                            )
+                        }
+                    },
+                    title = {
+                        Text(
+                            text = "Search ${state.listSlug.orEmpty()}",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    },
+                )
+            },
+        ) { padding ->
+            SearchContent(state, viewModel, onOpenThread, now, Modifier.padding(padding))
+        }
+    }
+}
+
+@Composable
+private fun SearchContent(
+    state: SearchUiState,
+    viewModel: SearchViewModel,
+    onOpenThread: (String) -> Unit,
+    now: Long,
+    modifier: Modifier = Modifier,
+) {
+    val scope = state.listSlug
 
     Column(modifier.fillMaxSize()) {
         OutlinedTextField(
             value = state.query,
             onValueChange = viewModel::onQueryChange,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            placeholder = { Text("Search the archive") },
+            placeholder = { Text(scope?.let { "Search in $it" } ?: "Search the archive") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
             trailingIcon = {
                 if (state.query.isNotEmpty()) {
@@ -92,9 +144,14 @@ fun SearchScreen(
 
         when {
             !state.hasSearched -> EmptyState(
-                title = "Search lore.kernel.org",
-                subtitle = "Try a subsystem (\"io_uring\"), a file path, or an author's address. " +
-                    "Threads you've already opened are searched offline too.",
+                title = scope?.let { "Search $it" } ?: "Search lore.kernel.org",
+                subtitle = if (scope == null) {
+                    "Try a subsystem (\"io_uring\"), a file path, or an author's address. " +
+                        "Threads you've already opened are searched offline too."
+                } else {
+                    "Only messages archived in $scope are matched, along with anything you've " +
+                        "already opened from it. Use the Search tab to cover every list at once."
+                },
             )
 
             state.isSearching -> Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -106,7 +163,7 @@ fun SearchScreen(
                 subtitle = "Nothing in the archive matched “${state.query}”.",
             )
 
-            else -> SearchResults(state, viewModel, onOpenThread)
+            else -> SearchResults(state, viewModel, onOpenThread, now)
         }
     }
 }
@@ -116,6 +173,7 @@ private fun SearchResults(
     state: SearchUiState,
     viewModel: SearchViewModel,
     onOpenThread: (String) -> Unit,
+    now: Long,
 ) {
     LazyColumn(Modifier.fillMaxSize()) {
         // Cached hits come first: they open instantly and work with the radio off.
@@ -135,6 +193,7 @@ private fun SearchResults(
                     subject = message.subject,
                     author = message.authorDisplay,
                     epochMillis = message.dateEpochMillis,
+                    now = now,
                     onClick = { onOpenThread(message.threadRootId) },
                 )
                 HorizontalDivider(
@@ -155,6 +214,7 @@ private fun SearchResults(
             ) { thread: ThreadSummary ->
                 ThreadRow(
                     thread = thread,
+                    now = now,
                     onClick = { onOpenThread(thread.rootMessageId) },
                     onToggleSaved = { },
                 )
@@ -221,6 +281,7 @@ private fun LocalHitRow(
     subject: String,
     author: String,
     epochMillis: Long,
+    now: Long,
     onClick: () -> Unit,
 ) {
     Column(
@@ -231,7 +292,7 @@ private fun LocalHitRow(
     ) {
         Text(subject, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
         Text(
-            text = "$author · ${formatRelative(epochMillis)}",
+            text = "$author · ${formatRelative(epochMillis, now)}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
