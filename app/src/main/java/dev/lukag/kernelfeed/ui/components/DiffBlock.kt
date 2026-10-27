@@ -142,7 +142,7 @@ private fun DiffBody(diff: RenderedDiff) {
     Row(Modifier.fillMaxWidth()) {
         Text(
             text = diff.gutter,
-            style = CodeTypography.monoSmall,
+            style = CodeTypography.mono,
             softWrap = false,
             modifier = Modifier
                 .background(colors.diffSurface)
